@@ -1,0 +1,41 @@
+external def len : external_list -> nat
+external def head : external_list -> nat
+external def tail : external_list -> external_list
+external def prefix : external_list -> nat -> external_list
+external def suffix : external_list -> nat -> external_list
+external def safe_dec : nat -> nat
+
+def pcfg : (Unit -> real) -> external_list -> real =
+    fun (k : Unit -> real) =>
+        fun (words : external_list) =>
+            let k_of_z = fun (z : bool) =>
+                logPr BERN(0.500000) at z end +
+                if z then
+                    if (len words) = 1 and (head words) = 0 then
+                        (k unit)
+                    else
+                        -inf + (k unit)
+                    end
+                else
+                    if (len words) < 2 then
+                        -inf + (k unit)
+                    else
+                        let k_of_sp = fun (sp : nat) =>
+                            let k_of_d1 = fun (d1 : Unit) =>
+                                let k_of_d2 = fun (d2 : Unit) =>
+                                    (k unit)
+                                in
+                                ((pcfg k_of_d2) ((suffix words) sp))
+                                end
+                            in
+                            ((pcfg k_of_d1) ((prefix words) sp))
+                            end
+                        in
+                        (((LogSumExp k_of_sp) 1) (safe_dec (len words)))
+                        end
+                    end
+                end
+            in
+            (((LogSumExp k_of_z) false) true)
+            end
+

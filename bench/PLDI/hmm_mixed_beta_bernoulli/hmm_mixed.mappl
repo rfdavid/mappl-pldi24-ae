@@ -1,0 +1,23 @@
+external type external_list
+
+external def len : external_list -> nat
+external def head : external_list -> bool
+external def tail : external_list -> external_list
+
+external def mean : ureal -> bool -> nat 
+external def bias : bool -> ureal 
+
+external def alpha : Unit -> nat
+external def beta  : Unit -> nat
+external def to_nat : bool -> nat
+external def safe_sub : nat -> nat -> nat
+
+def hmm_mixed(z : bool, data: external_list) : Unit =
+  if (len data) = 0 
+    then return unit 
+    else
+      p = sample(BETA((alpha unit) + (to_nat z), (beta unit) + ((safe_sub 1) (to_nat z))));
+      observe (head data) from BERN(p); 
+      z' = sample(BERN(bias z));
+      hmm_mixed(z', tail(data))
+    end

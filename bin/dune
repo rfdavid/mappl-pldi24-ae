@@ -1,0 +1,10 @@
+(executable
+ (public_name mappl)
+ (name main)
+ (libraries
+  MAPPL
+  core_unix.filename_unix
+  core_unix.command_unix
+  core_unix.sys_unix)
+ (preprocess
+  (pps ppx_jane)))

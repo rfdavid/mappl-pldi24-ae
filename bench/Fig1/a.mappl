@@ -1,0 +1,17 @@
+external type external_list
+
+external def len : external_list -> nat
+external def head : external_list -> real
+external def tail : external_list -> external_list
+
+external def mean : bool -> nat 
+external def bias : bool -> ureal 
+
+def hmm(z : bool, data: external_list) : Unit =
+  if (len data) = 0 
+    then return unit 
+    else
+      observe (head data) from NORMAL((mean z), 1); 
+      z' = sample(BERN(bias z));
+      hmm(z', tail(data))
+    end

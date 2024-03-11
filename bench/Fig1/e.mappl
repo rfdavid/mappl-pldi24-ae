@@ -1,0 +1,34 @@
+external type external_list
+
+external def len : external_list -> nat
+external def head : external_list -> nat
+external def tail : external_list -> external_list
+external def prefix : external_list -> nat -> external_list
+external def suffix : external_list -> nat -> external_list
+
+
+(* 
+  S -> S S
+  S -> 0
+*)
+
+def pcfg(words : external_list) : Unit =
+  z = sample(BERN(0.5));
+  if z then (* S -> 0 *)
+    if len(words) = 1 and head(words) = 0 then 
+      return unit
+    else 
+      factor(-inf)
+    end
+  else (* S -> S S *)
+    if len(words) < 2 then 
+      factor(-inf)
+    else 
+      sp = choose(1, len words);
+      (* words[:sep] = w[0], w[1] ...    w[sep-1] *)
+      (* words[sep:] = w[sep], w[sep+1] ... w[-1] *)
+      pcfg((prefix words) sp);
+      pcfg((suffix words) sp)
+    end
+  end
+  

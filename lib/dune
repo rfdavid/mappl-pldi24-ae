@@ -1,0 +1,11 @@
+(ocamllex Lexer)
+
+(menhir
+ (flags --table --inspection --explain --dump)
+ (modules Parser))
+
+(library
+ (name MAPPL)
+ (libraries dune-build-info core compiler-libs.common menhirLib str)
+ (preprocess
+  (pps ppx_jane ppx_deriving.show)))
