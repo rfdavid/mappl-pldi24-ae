@@ -53,7 +53,9 @@ perform ANF conversion into pyro code generation
 
 ## Platform requirements
 
-To set up the environment with all required dependencies, you will build the environment from scratch using [Nix](https://nixos.org/download). We uses Nix version 2.20.5. All experiments were run on a workstation with a 3.6GHz Intel Core i7-7820X processor and 12GB of memory. This Nix environment is not for Apple ARM processors.
+To set up the environment with all required dependencies, you will build the environment from scratch using [Nix](https://nixos.org/download). 
+We use Nix version 2.20.5. All experiments were run on a Ubuntu 5.4.0-173-generic workstation with a 3.6GHz Intel Core i7-7820X processor and 12GB of memory. 
+This Nix environment is not for Apple ARM processors.
 
 ## Getting Started
 
