@@ -17,24 +17,29 @@
         dice = pkgs.callPackage ./dice.nix { };
         perpl = pkgs.callPackage ./perpl.nix { };
         fggs = pkgs.callPackage ./fggs.nix { };
+        artifact-evaluation = (with pkgs; [
+              coreutils-full
+              bash
+              zsh
+              fish
+              gnumake
+              nano
+              vim
+              mappl
+              dice
+              hyperfine
+              perl
+              (python3.withPackages (ps: with ps; [
+                pyro-ppl
+                matplotlib
+              ]))
+              fggs
+              perpl
+            ]);
       in
       {
         devShell = pkgs.mkShell {
-          buildInputs = (with pkgs; [
-            mappl
-            dice
-            which
-            bash
-            zsh
-            hyperfine
-            perl
-            (python3.withPackages (ps: with ps; [
-              pyro-ppl
-              matplotlib
-            ]))
-            fggs
-            perpl
-          ]);
+          buildInputs = artifact-evaluation;
         };
       }
     );
