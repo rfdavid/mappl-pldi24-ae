@@ -22,6 +22,7 @@
               bash
               zsh
               fish
+              tree
               gnumake
               nano
               vim
