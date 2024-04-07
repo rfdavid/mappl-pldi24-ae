@@ -282,7 +282,7 @@ Source code is in the `hmm_mixed_beta_normal` folder. To automate the steps belo
     similarly benchmarks the MAPPL program with importance sampling.
 
 4.  ```shell
-    make bench.exact
+    make bench.mapplwm
     ```
     uses symbolic integration to approximate the solution to the inference problem, outputting to a `csv` file.
 
