@@ -12,7 +12,7 @@ let header =
   "import torch\n\
    import pyro\n\
    import pyro.distributions as dist\n\
-   from functools import cache, partial\n\
+   from functools import cache\n\
    import argparse\n"
 ;;
 
@@ -197,7 +197,7 @@ and emit_call fmt func_id args =
        currently we assume all partial applications return unary functions *)
     Format.fprintf
       fmt
-      "partial(%s%s%a)"
+      "cached_partial(%s%s%a)"
       func_name
       (if List.length args = 0 then "" else ", ")
       (print_list ~f:dump_atomic)

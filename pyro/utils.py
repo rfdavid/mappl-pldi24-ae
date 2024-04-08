@@ -12,6 +12,11 @@ sys.setrecursionlimit(32767)
 TensorIntBool = torch.tensor([0, 1], dtype=torch.int)
 max_tries=2**256
 
+@cache
+def cached_partial(func, *args):
+    return partial(func, *args)
+
+@cache
 def auto_invoke_partial(func, *args, **kwargs):
     if not args and not kwargs: 
         return func()  
