@@ -3,7 +3,7 @@
 
 The docker image is directly extracted from the earlier submission using Nix.
 Only necessity and utility commands needed by the docker image, e.g., the Dockerfile, gunmake, and nano, etc., are added to the artifact repo as the docker branch. For info on 
-https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/compare/main...docker
+https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/compare/v0.1-alpha...v0.1-beta
 
 # To use the docker image downloaded from Google Drive
 
@@ -280,14 +280,14 @@ https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/compare/main...docker
 # To use the docker image from a Dockerfile.
 
 0. You get the docker file by either 
-    - `git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=docker`,
+    - `git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=v0.1-beta`,
     - copy and paste from https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/blob/docker/Dockerfile, or 
     - copy and paste from here
 
         ```docker
         FROM nixos/nix
 
-        RUN git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=docker
+        RUN git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=v0.1-beta
         WORKDIR /mappl-pldi24-ae
         RUN nix --extra-experimental-features  nix-command --extra-experimental-features flakes develop 
 
