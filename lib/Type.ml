@@ -17,6 +17,7 @@ type prim_ty =
   | Pty_real
   | Pty_fnat of int
   | Pty_nat
+  | Pty_int
 [@@deriving show, equal, compare, hash]
 
 let is_prim_subtype pty1 pty2 =
@@ -42,6 +43,7 @@ let print_prim_ty fmt = function
   | Pty_real -> Format.fprintf fmt "real"
   | Pty_fnat n -> Format.fprintf fmt "nat[%d]" n
   | Pty_nat -> Format.fprintf fmt "nat"
+  | Pty_int -> Format.fprintf fmt "int"
 ;;
 
 type base_ty =
@@ -56,6 +58,7 @@ and base_ty_desc =
   | Bty_prod of base_ty * base_ty
   | Bty_arrow of base_ty * base_ty
   | Bty_dist of base_ty
+  | Bty_array of int * base_ty
 [@@deriving show, equal, compare, hash]
 
 type base_tyv =
@@ -65,6 +68,7 @@ type base_tyv =
   | Btyv_prod of base_tyv * base_tyv
   | Btyv_arrow of base_tyv * base_tyv
   | Btyv_dist of base_tyv
+  | Btyv_array of int * base_tyv
 [@@deriving show, equal, compare, hash]
 
 let mknoloc_bty bty_desc = { bty_desc; bty_loc = Location.none }
@@ -76,6 +80,7 @@ let rec to_base_ty : base_tyv -> base_ty = function
   | Btyv_prod (lhs, rhs) -> mknoloc_bty @@ Bty_prod (to_base_ty lhs, to_base_ty rhs)
   | Btyv_arrow (lhs, rhs) -> mknoloc_bty @@ Bty_arrow (to_base_ty lhs, to_base_ty rhs)
   | Btyv_dist d -> mknoloc_bty @@ Bty_dist (to_base_ty d)
+  | Btyv_array (i, arr) -> mknoloc_bty @@ Bty_array (i, to_base_ty arr)
 ;;
 
 let rec erase_loc_base_ty ty =
@@ -86,6 +91,7 @@ let rec erase_loc_base_ty ty =
   | Bty_prod (ty1, ty2) -> Btyv_prod (erase_loc_base_ty ty1, erase_loc_base_ty ty2)
   | Bty_arrow (ty1, ty2) -> Btyv_arrow (erase_loc_base_ty ty1, erase_loc_base_ty ty2)
   | Bty_dist dist -> Btyv_dist (erase_loc_base_ty dist)
+  | Bty_array (i, arr) -> Btyv_array (i, erase_loc_base_ty arr)
 ;;
 
 let rec print_base_tyv fmt = function
@@ -101,6 +107,7 @@ let rec print_base_tyv fmt = function
   | Btyv_arrow (tyv1, tyv2) ->
     Format.fprintf fmt "%a -> %a" print_base_tyv tyv1 print_base_tyv tyv2
   | Btyv_dist tyv -> Format.fprintf fmt "%a dist" print_base_tyv tyv
+  | Btyv_array (_, arr) -> Format.fprintf fmt "[%a]" print_base_tyv arr
 ;;
 
 (* and print_base_tyv_prod fmt = function

@@ -1,5 +1,5 @@
 def head(data):
-    return torch.tensor(data[0], dtype=float)
+    return data[0]
 
 def tail(data):
     return data[1:]
@@ -13,10 +13,8 @@ def beta(_):
 def to_nat(x):
     return int(x)
 
-def safe_sub(x):
-    def _sub(y):
-        return x - y
-    return _sub
+def safe_sub(x, y):
+    return x - y
 
 def halt_transformed(_b):
     return 0.0
@@ -85,18 +83,12 @@ class HMMaMixture:
             nxt = pyro.sample(f"state_{len(data)}", dist.Bernoulli(self.theta[cur])).long()
             b = self.model(nxt.item(), xs)
         return ()
-    
-    def transformed(*args):
-        f = hmm_mixed
-        for arg in args[1:]:
-            f = f(arg)
-        return f
 
     def model_evidence_IS(self):
         return model_evidence("importance", self.model, self.init, self.data, num_samples=self.num_samples)
 
     def model_evidence_MAPPLIS(self):
-        return model_evidence("transform", self.transformed, halt_transformed, self.init, self.data)
+        return model_evidence("transform", hmm_mixed, halt_transformed, self.init, self.data)
 
     def one_trail(self, config, f):
         loginfo = "{:>10}, \t{:>10d}, \t{:>7d}, \t{:>12.5f}, \t{:>30.20f}, \t{:>+37.30e}, "

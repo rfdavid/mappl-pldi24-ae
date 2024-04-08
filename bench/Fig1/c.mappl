@@ -7,7 +7,7 @@ external def tail : external_list -> external_list
 external def mean : bool -> nat 
 external def bias : bool -> ureal 
 
-def hmm2(z0 : bool, data: external_list) : bool =
+def hmm2(z0 : bool, data: external_list) : bool = {
   if len(data) = 0 
     then return z0
     else 
@@ -16,3 +16,4 @@ def hmm2(z0 : bool, data: external_list) : bool =
       z' = sample(BERN(bias z));
       return z'
     end
+}

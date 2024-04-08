@@ -1,0 +1,78 @@
+external def safe_dec : nat -> nat
+
+def diamond(s1: bool, depth: nat) : Unit = {
+    if depth = 0
+        then return unit
+        else 
+            route = sample(BERN(0.5));
+            s2 = return (if route then s1 else false end);
+            s3 = return (if route then false else s1 end);
+            keep = sample(BERN(0.999));
+            observe (s2 or (s3 and keep)) from BERN(1);
+            diamond(true, safe_dec depth)
+        end
+}
+
+def model(len: nat) : Unit = {
+    diamond(true, len)
+}
+
+(* [var-elim]
+
+external def safe_dec : nat -> nat
+def diamond(k : Unit -> real, s1 : bool, depth : nat) : real =
+    if depth = 0 then
+        k@(unit)
+    else
+        let k_of_keep = fun (keep : bool) =>
+            logPr BERN(0.999000) at keep end +
+            let k_of_route = fun (route : bool) =>
+                logPr BERN(0.500000) at route end +
+                let s2 = if route then s1 else false end in
+                let s3 = if route then false else s1 end in
+                logPr BERN(1) at s2 or s3 and keep end
+                end
+                end
+            in
+            LogSumExp@(k_of_route, false, true)
+            end
+        in
+        LogSumExp@(k_of_keep, false, true) +
+        diamond@(k, true, safe_dec@(depth))
+        end
+    end
+
+def model(k : Unit -> real, len : nat) : real =
+    diamond@(k, true, len)
+*)
+
+(* [hoist]
+
+external def safe_dec : nat -> nat
+def diamond(k : Unit -> real, s1 : bool, depth : nat) : real =
+    if depth = 0 then
+        k@(unit)
+    else
+        let k_of_keep = lambda_1@(s1) in
+        LogSumExp@(k_of_keep, false, true) +
+        diamond@(k, true, safe_dec@(depth))
+        end
+    end
+
+def lambda_1(s1 : bool, keep : bool) : real =
+    logPr BERN(0.999000) at keep end +
+    let k_of_route = lambda_0@(keep, s1) in
+    LogSumExp@(k_of_route, false, true)
+    end
+
+def lambda_0(keep : bool, s1 : bool, route : bool) : real =
+    logPr BERN(0.500000) at route end +
+    let s2 = if route then s1 else false end in
+    let s3 = if route then false else s1 end in
+    logPr BERN(1) at s2 or s3 and keep end
+    end
+    end
+
+def model(k : Unit -> real, len : nat) : real =
+    diamond@(k, true, len)
+*)

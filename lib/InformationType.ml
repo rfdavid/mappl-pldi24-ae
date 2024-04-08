@@ -9,6 +9,7 @@ type unlabeled_tyv =
   | Utyv_prod of labeled_tyv * labeled_tyv
   | Utyv_arrow of labeled_tyv * labeled_tyv
   | Utyv_dist of labeled_tyv
+  | Utyv_array of int * labeled_tyv
 
 and labeled_tyv = Lty of unlabeled_tyv * LevelExpr.t
 [@@deriving show, equal, compare, hash]

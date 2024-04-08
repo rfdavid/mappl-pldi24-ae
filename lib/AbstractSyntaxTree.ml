@@ -40,10 +40,11 @@ type 'a dist =
   | D_beta of 'a * 'a
   | D_gamma of 'a * 'a
   | D_normal of 'a * 'a
-  | D_cat of 'a list
+  | D_cat of 'a
   | D_bin of int * 'a
   | D_geo of 'a
   | D_pois of 'a
+  | D_exp of 'a
 [@@deriving show, equal, compare, hash]
 
 type exp =
@@ -59,11 +60,13 @@ and exp_desc =
   | E_case of exp * variable_id * exp * variable_id * exp
   | E_real of float
   | E_nat of int
+  | E_array of exp list
   | E_inf
   | E_ninf
   | E_binop of binop loc * exp * exp
   | E_abs of variable_id * base_ty * exp
   | E_app of exp * exp
+  | E_call of variable_id * exp list
   | E_inl of exp
   | E_inr of exp
   | E_let of exp * variable_id * exp
@@ -111,7 +114,16 @@ let update_type_trm { trm_desc; trm_loc; _ } ty =
 ;;
 
 let update_desc_cmd { cmd_loc; cmd_type; _ } cmd_desc = { cmd_desc; cmd_loc; cmd_type }
+
+let print_id_bty fmt (var, bty) =
+  Format.fprintf fmt "%s : %a" var.txt print_base_tyv (erase_loc_base_ty bty)
+;;
+
 let print_arg fmt (var, bty) = Format.fprintf fmt "%s : %a" var print_base_tyv bty
+
+let print_id_btyv fmt (var, btyv) =
+  Format.fprintf fmt "%s : %a" var.txt print_base_tyv btyv
+;;
 
 let erase_loc_arg_list l =
   List.map l ~f:(fun (name, basety) -> name.txt, erase_loc_base_ty basety)
@@ -119,6 +131,7 @@ let erase_loc_arg_list l =
 
 let rec print_exp fmt exp =
   match exp.exp_desc with
+  | E_array array -> Format.fprintf fmt "@[[%a]@]" (print_list ~f:print_exp) array
   | E_var var_name -> Format.fprintf fmt "%s" var_name.txt
   | E_triv -> Format.fprintf fmt "%s" "unit"
   | E_bool b -> Format.fprintf fmt "%b" b
@@ -157,6 +170,8 @@ let rec print_exp fmt exp =
       print_exp
       body
   | E_app (rator, rand) -> Format.fprintf fmt "(%a %a)" print_exp rator print_exp rand
+  | E_call (func_id, args) ->
+    Format.fprintf fmt "%s@(%a)" func_id.txt (Common.print_list ~f:print_exp) args
   | E_field (exp0, field) -> Format.fprintf fmt "%a[%d]" print_exp exp0 field
   | E_let ({ exp_desc = E_abs (arg_name, arg_type, body); exp_loc }, v, e) ->
     let eabs = { exp_desc = E_abs (arg_name, arg_type, body); exp_loc } in
@@ -185,7 +200,7 @@ let rec print_exp fmt exp =
   | E_inr _ -> failwith "TODO: not implemented"
   | E_logPr (dist, v) ->
     Format.fprintf fmt "logPr %a at %a end" print_exp dist print_exp v
-  | E_logML m -> Format.fprintf fmt "@[<hv>logML(@;<0 4>@[%a@]@;)@]" print_cmd m
+  | E_logML m -> Format.fprintf fmt "@[<hv>logML(@\n     @[%a@]@\n)@]" print_cmd m
 
 and print_dist fmt d =
   match d with
@@ -194,37 +209,34 @@ and print_dist fmt d =
   | D_unif -> Format.fprintf fmt "UNIF"
   | D_beta (e1, e2) -> Format.fprintf fmt "BETA(%a, %a)" print_exp e1 print_exp e2
   | D_gamma (e1, e2) -> Format.fprintf fmt "GAMMA(%a, %a)" print_exp e1 print_exp e2
-  | D_cat args ->
-    Format.fprintf
-      fmt
-      "CAT(%a)"
-      (print_list ~f:(fun fmt e -> Format.fprintf fmt "%a" print_exp e))
-      args
+  | D_cat logits -> Format.fprintf fmt "CAT(%a)" print_exp logits
   | D_bin (n, e) -> Format.fprintf fmt "BIN(%d; %a)" n print_exp e
   | D_geo e -> Format.fprintf fmt "GEO(%a)" print_exp e
   | D_pois e -> Format.fprintf fmt "POIS(%a)" print_exp e
+  | D_exp e -> Format.fprintf fmt "EXP(%a)" print_exp e
 
 and print_trm fmt trm =
   match trm.trm_desc with
-  | T_ret exp -> Format.fprintf fmt "return %a" print_exp exp
-  | T_sample e -> Format.fprintf fmt "sample(%a)" print_exp e
+  | T_ret exp -> Format.fprintf fmt "@[return %a@]" print_exp exp
+  | T_sample e -> Format.fprintf fmt "@[sample(%a)@]" print_exp e
   | T_branch (cond, tbranch, fbranch) ->
     Format.fprintf
       fmt
-      "if {%a} then %a else %a"
+      "@[<hv>if %a then {@;<1 4>@[%a@]@;} else {@;<1 4>@[%a@]@;} end@]"
+      (* "if {%a} then %a else %a" *)
       print_exp
       cond
       print_cmd
       tbranch
       print_cmd
       fbranch
-  | T_factor exp -> Format.fprintf fmt "@[factor(@;<0 4>@[%a@]@;)@]" print_exp exp
+  | T_factor exp -> Format.fprintf fmt "@[factor(@[%a@])@]" print_exp exp
   | T_observe (dist, obs) ->
-    Format.fprintf fmt "observe %a from %a" print_exp obs print_exp dist
+    Format.fprintf fmt "@[observe %a from %a@]" print_exp obs print_exp dist
   | T_case _ -> failwith "not implemented "
   | T_call (def_id, args) ->
-    Format.fprintf fmt "%s(%a)" def_id.txt (print_list ~f:print_exp) args
-  | T_choose (lb, ub) -> Format.fprintf fmt "choose(%a,%a)" print_exp lb print_exp ub
+    Format.fprintf fmt "@[%s(%a)@]" def_id.txt (print_list ~f:print_exp) args
+  | T_choose (lb, ub) -> Format.fprintf fmt "@[choose(%a,%a)@]" print_exp lb print_exp ub
 
 and print_cmd fmt cmd =
   match cmd.cmd_desc with
@@ -250,9 +262,17 @@ type proc =
   }
 [@@deriving show]
 
+type func =
+  { func_sig : proc_sig
+  ; func_body : exp
+  ; func_loc : Location.t [@printer Location.print_loc]
+  }
+[@@deriving show]
+
 type top_level =
   | Top_type of type_id * base_ty
   | Top_pure of def_id * base_ty * exp
+  | Top_func of def_id * func
   | Top_proc of def_id * proc
   | Top_external_type of type_id
   | Top_external_pure of variable_id * base_ty
@@ -275,6 +295,28 @@ let print_top_level fmt = function
       id.txt
       print_base_tyv
       (erase_loc_base_ty ty)
+  | Top_func (id, { func_body; func_sig = { psig_arg_tys; psig_ret_ty }; _ }) ->
+    Format.fprintf
+      fmt
+      "@[def %s(@[%a@]) : %a =@.    @[%a@]@]@\n"
+      id.txt
+      (Common.print_list ~f:print_id_bty)
+      psig_arg_tys
+      print_base_tyv
+      (erase_loc_base_ty psig_ret_ty)
+      print_exp
+      func_body
+  | Top_proc (id, { proc_body; proc_sig = { psig_arg_tys; psig_ret_ty }; _ }) ->
+    Format.fprintf
+      fmt
+      "@[def %s(@[%a@]) : %a ={@.    @[%a@]@\n}@]@\n"
+      id.txt
+      (Common.print_list ~f:print_id_bty)
+      psig_arg_tys
+      print_base_tyv
+      (erase_loc_base_ty psig_ret_ty)
+      print_cmd
+      proc_body
   | _ -> failwith "[TODO] print_top_level"
 ;;
 
@@ -288,8 +330,11 @@ let rec apperas_exp exp name =
   | E_nat _ -> false
   | E_triv -> false
   | E_bool _ -> false
+  | E_ninf -> false
   | E_abs (id, _, e) -> if String.equal id.txt name then false else apperas_exp e name
   | E_app (e1, e2) -> apperas_exp e1 name || apperas_exp e2 name
+  | E_call (func_id, args) ->
+    String.equal func_id.txt name || List.exists args ~f:(fun arg -> apperas_exp arg name)
   | E_binop (_, lhs, rhs) -> apperas_exp lhs name || apperas_exp rhs name
   | E_logPr (dist, v) -> apperas_exp dist name || apperas_exp v name
   | E_dist (D_ber p) -> apperas_exp p name
@@ -302,6 +347,9 @@ let rec apperas_exp exp name =
   | E_logML m -> apperas_cmd m name
   | E_dist (D_beta (a, b)) -> apperas_exp a name || apperas_exp b name
   | E_dist (D_normal (loc, std)) -> apperas_exp loc name || apperas_exp std name
+  | E_dist (D_cat logits) -> apperas_exp logits name
+  | E_dist (D_exp lambda) -> apperas_exp lambda name
+  | E_array contents -> List.exists contents ~f:(fun e -> apperas_exp e name)
   | _ ->
     Format.printf "%a@\n" print_exp exp;
     failwith "[apperas] exp TODO"
@@ -346,5 +394,21 @@ let rec subst_exp s exp =
   | E_binop (bop, lhs, rhs) ->
     mknoloc_exp @@ E_binop (bop, subst_exp s lhs, subst_exp s rhs)
   | E_app (lhs, rhs) -> mknoloc_exp @@ E_app (subst_exp s lhs, subst_exp s rhs)
+  | E_logML m -> mknoloc_exp @@ E_logML (subst_cmd s m)
   | _ -> exp
+
+and subst_trm s trm =
+  match trm.trm_desc with
+  | T_factor e -> mknoloc_trm @@ T_factor (subst_exp s e)
+  | T_ret e -> mknoloc_trm @@ T_ret (subst_exp s e)
+  | T_sample e -> mknoloc_trm @@ T_sample (subst_exp s e)
+  | _ -> failwith "subst_trm s TODO"
+
+and subst_cmd s cmd =
+  match cmd.cmd_desc with
+  | M_trm t -> mknoloc_cmd @@ M_trm (subst_trm s t)
+  | M_seq (t, m) -> mknoloc_cmd @@ M_seq (subst_trm s t, subst_cmd s m)
+  | M_bnd (id, t, m) ->
+    let s' = Map.update s id.txt ~f:(fun _ -> mknoloc_exp @@ E_var id) in
+    mknoloc_cmd @@ M_bnd (id, subst_trm s' t, subst_cmd s' m)
 ;;

@@ -4,10 +4,11 @@ external def len : external_list -> nat
 external def head : external_list -> real
 external def tail : external_list -> external_list
 
+(* def mean : bool-> nat  = fun (z : bool) => if z then 5 else 8 end *)
 external def mean : bool -> nat 
 external def bias : bool -> ureal 
 
-def hmm(z : bool, data: external_list) : Unit =
+def hmm(z : bool, data: external_list) : Unit = {
   if (len data) = 0 
     then return unit 
     else
@@ -15,3 +16,4 @@ def hmm(z : bool, data: external_list) : Unit =
       z' = sample(BERN(bias z));
       hmm(z', tail(data))
     end
+}

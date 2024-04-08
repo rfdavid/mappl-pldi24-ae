@@ -8,15 +8,15 @@ def halt_transformed(_b):
     return 0.0
 
 def mean(z):
-    return torch.tensor(z, dtype=float)
+    return z
 
 def bias(z):
     global global_theta
     return global_theta[z]
 
 def sigma(dummy):
-    global global_theta
-    return torch.tensor(global_sigma)
+    global global_sigma
+    return global_sigma
 
 def print_header():
     print(
@@ -54,7 +54,7 @@ class HMM:
         global_seed=seed
 
     def model_evidence_MAPPL(self):
-        return model_evidence("transform", hmm2(halt_transformed)(self.init), self.data)
+        return model_evidence("transform", hmm2, halt_transformed, self.init, self.data)
 
     def one_trail(self, config, f):
         loginfo = "{:>10}, \t{:>7d}, \t{:>12.5f}, \t{:>30.20f}, \t{:>+37.30e}, "

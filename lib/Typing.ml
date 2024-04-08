@@ -3,7 +3,7 @@ open Or_error.Let_syntax
 open AbstractSyntaxTree
 open Type
 open Identifier
-open Common
+(* open Common *)
 
 let erase_loc_proc_sig psig =
   { psigv_arg_tys =
@@ -30,11 +30,19 @@ let collect_proc_sigs prog =
        | _ -> None))
 ;;
 
+let sigv_to_arrow proc_sigv =
+  proc_sigv.psigv_arg_tys
+  |> List.fold_right ~init:proc_sigv.psigv_ret_ty ~f:(fun (_, arg_ty) acc ->
+    Btyv_arrow (arg_ty, acc))
+;;
+
 let collect_pure_sigs prog =
   String.Map.of_alist_or_error
     (List.filter_map prog ~f:(fun top ->
        match top with
        | Top_pure (name, bty, _) -> Some (name.txt, erase_loc_base_ty bty)
+       | Top_func (name, { func_sig; _ }) ->
+         Some (name.txt, sigv_to_arrow @@ erase_loc_proc_sig @@ func_sig)
        | _ -> None))
 ;;
 
@@ -46,9 +54,17 @@ let collect_external_pures prog =
        | _ -> None))
 ;;
 
+(* let print_ctx fmt ctx =
+   let kvs = Map.to_alist ctx in
+   if List.is_empty kvs then Format.fprintf fmt "." else print_list ~f:print_arg fmt kvs
+   ;; *)
+let print_ctx_item fmt (var, bty) = Format.fprintf fmt "\t%s\t: %a" var print_base_tyv bty
+
 let print_ctx fmt ctx =
   let kvs = Map.to_alist ctx in
-  if List.is_empty kvs then Format.fprintf fmt "." else print_list ~f:print_arg fmt kvs
+  if List.is_empty kvs
+  then Format.fprintf fmt "\t."
+  else Format.pp_print_list ~pp_sep:Format.pp_force_newline print_ctx_item fmt kvs
 ;;
 
 let rec lookup_in_maps maps ~key =
@@ -75,7 +91,7 @@ let is_prim_subtype pty1 pty2 =
   | Pty_fnat _, Pty_nat -> true
   | Pty_fnat n, Pty_ureal -> n <= 2
   | Pty_fnat _, Pty_preal | Pty_fnat _, Pty_real -> true
-  | Pty_nat, Pty_nat | Pty_nat, Pty_preal | Pty_nat, Pty_real -> true
+  | Pty_nat, Pty_nat | Pty_nat, Pty_preal | Pty_nat, Pty_real | Pty_nat, Pty_int -> true
   | _ -> false
 ;;
 
@@ -131,6 +147,9 @@ let rec join_type ~loc tyv1 tyv2 =
     if equal_base_tyv tyv1' tyv2'
     then Ok (Btyv_dist tyv1')
     else Or_error.of_exn (Type_error ("join error", loc))
+  | Btyv_array (n, tyv1'), Btyv_array (m, tyv2') when n = m ->
+    let%bind join = join_type ~loc tyv1' tyv2' in
+    Ok (Btyv_array (n, join))
   | _ -> Or_error.of_exn (Type_error ("join error", loc))
 
 and meet_type ~loc tyv1 tyv2 =
@@ -184,6 +203,7 @@ let tycheck_bop_prim bop pty1 pty2 =
   | Bop_sub, Pty_real, Pty_ureal
   | Bop_sub, Pty_real, Pty_preal
   | Bop_sub, Pty_real, Pty_real -> Ok Pty_real
+  | Bop_sub, Pty_int, Pty_int -> Ok Pty_int
   | Bop_mul, Pty_ureal, Pty_ureal -> Ok Pty_ureal
   | Bop_mul, Pty_ureal, Pty_preal -> Ok Pty_preal
   | Bop_mul, Pty_ureal, Pty_real -> Ok Pty_real
@@ -210,7 +230,8 @@ let tycheck_bop_prim bop pty1 pty2 =
   | Bop_and, Pty_bool, Pty_bool | Bop_or, Pty_bool, Pty_bool -> Ok Pty_bool
   | _ ->
     Or_error.of_exn
-      (Type_error ("mismatched operand types : " ^ show_binop bop.txt, bop.loc))
+      (Type_error
+         ("[tycheck_bop_prim] mismatched operand types : " ^ show_binop bop.txt, bop.loc))
 ;;
 
 let tycheck_bop bop arg1 arg2 =
@@ -220,7 +241,16 @@ let tycheck_bop bop arg1 arg2 =
     Ok (Btyv_prim res)
   | _ ->
     Or_error.of_exn
-      (Type_error ("mismatched operand types : " ^ show_binop bop.txt, bop.loc))
+      (Type_error
+         ("[tycheck_bop] mismatched operand types : " ^ show_binop bop.txt, bop.loc))
+;;
+
+let rec arrow_to_args_and_ret arrow =
+  match arrow with
+  | Btyv_arrow (head, tail) ->
+    let args, ret = arrow_to_args_and_ret tail in
+    head :: args, ret
+  | _ -> [], arrow
 ;;
 
 let rec tycheck_exp_impl globals locals exp =
@@ -294,6 +324,55 @@ let rec tycheck_exp_impl globals locals exp =
          Format.printf "%a@\n" print_base_tyv tyv11;
          Or_error.of_exn (Type_error ("[Typing] mismatched argument types", exp2.exp_loc)))
      | _ -> Or_error.of_exn (Type_error ("non-arrow function type", exp.exp_loc)))
+  | E_call (var_name, args) ->
+    (match lookup_pures globals locals ~key:var_name.txt with
+     | Some tyv ->
+       let param_tys, ret_ty = arrow_to_args_and_ret tyv in
+       if not (List.length args = List.length param_tys)
+       then (
+         Format.printf "%a@\n" print_exp exp;
+         Or_error.of_exn (Type_error ("[E_call] mismatched arity", exp.exp_loc)))
+       else (
+         let%bind arg_tys =
+           List.fold_result (List.rev args) ~init:[] ~f:(fun acc arg ->
+             let%bind arg_ty = tycheck_exp globals locals arg in
+             Ok (arg_ty :: acc))
+         in
+         if List.for_all2_exn arg_tys param_tys ~f:(fun arg_ty param_ty ->
+              is_subtype arg_ty param_ty)
+         then Ok ret_ty
+         else
+           Or_error.of_exn
+             (Type_error
+                ("[tycheck_exp_impl][E_call] mismatched argument types", exp.exp_loc)))
+     | None ->
+       if String.equal var_name.txt "LogSumExp"
+       then (
+         match args with
+         | [ k; lb; ub ] ->
+           (match%bind tycheck_exp globals locals k with
+            | Btyv_arrow (a, Btyv_prim Pty_real) ->
+              let%bind lb_type = tycheck_exp globals locals lb in
+              let%bind ub_type = tycheck_exp globals locals ub in
+              (match is_subtype lb_type a, is_subtype ub_type a with
+               | true, true -> Ok (Btyv_prim Pty_real)
+               | true, false ->
+                 Or_error.of_exn
+                   (Type_error
+                      ("mismatched argument type of LogSumExp's 3rd argument", exp.exp_loc))
+               | _, _ ->
+                 Or_error.of_exn
+                   (Type_error
+                      ("mismatched argument type of LogSumExp's 2nd argument", exp.exp_loc)))
+            | _ ->
+              Or_error.of_exn
+                (Type_error
+                   ("mismatched argument type of LogSumExp's 1st argument", exp.exp_loc)))
+         | _ ->
+           Or_error.of_exn
+             (Type_error ("undefined variable " ^ var_name.txt, exp.exp_loc)))
+       else
+         Or_error.of_exn (Type_error ("undefined variable " ^ var_name.txt, exp.exp_loc)))
   | E_let (exp1, var_name, exp2) ->
     let%bind tyv1 = tycheck_exp globals locals exp1 in
     let%bind locals' =
@@ -334,6 +413,23 @@ let rec tycheck_exp_impl globals locals exp =
   | E_logML m ->
     let%bind _ = tycheck_cmd false globals locals m in
     Ok (Btyv_prim Pty_real)
+  | E_array contents ->
+    let size = List.length contents in
+    (match contents with
+     | [] -> Ok (Btyv_array (0, Btyv_prim Pty_unit))
+     | x :: [] ->
+       let%bind tyv_x = tycheck_exp globals locals x in
+       Ok (Btyv_array (1, tyv_x))
+     | x :: xs ->
+       let%bind init = tycheck_exp globals locals x in
+       let%bind joined =
+         xs
+         |> List.fold_result ~init ~f:(fun acc y ->
+           let%bind tyv_y = tycheck_exp globals locals y in
+           let%bind tyv_joined = join_type ~loc:exp.exp_loc acc tyv_y in
+           Ok tyv_joined)
+       in
+       Ok (Btyv_array (size, joined)))
 
 and tycheck_dist ~loc globals locals dist =
   let lift tars goal curs =
@@ -357,6 +453,9 @@ and tycheck_dist ~loc globals locals dist =
   | D_ber exp ->
     let%bind tyv = tycheck_exp globals locals exp in
     lift [ Pty_ureal ] Pty_bool [ tyv ]
+  | D_exp exp ->
+    let%bind tyv = tycheck_exp globals locals exp in
+    lift [ Pty_preal ] Pty_preal [ tyv ]
   | D_unif -> Ok (Btyv_prim Pty_ureal)
   | D_beta (exp1, exp2) ->
     let%bind tyv1 = tycheck_exp globals locals exp1 in
@@ -370,16 +469,33 @@ and tycheck_dist ~loc globals locals dist =
     let%bind tyv1 = tycheck_exp globals locals exp1 in
     let%bind tyv2 = tycheck_exp globals locals exp2 in
     lift [ Pty_real; Pty_preal ] Pty_real [ tyv1; tyv2 ]
-  | D_cat exps ->
-    let n = List.length exps in
-    let%bind () =
-      List.fold_result exps ~init:() ~f:(fun () exp ->
-        let%bind tyv = tycheck_exp globals locals exp in
-        if is_subtype tyv (Btyv_prim Pty_preal)
-        then Ok ()
-        else Or_error.of_exn (Type_error ("mismatched parameter types", loc)))
-    in
-    Ok (Btyv_prim (Pty_fnat n))
+  | D_cat logits ->
+    let%bind tyv_logits = tycheck_exp globals locals logits in
+    (match tyv_logits with
+     | Btyv_array (m, tyv_contents) ->
+       if not (is_subtype tyv_contents (Btyv_prim Pty_real))
+       then Or_error.of_exn (Type_error ("mismatched parameter types", loc))
+       else Ok (Btyv_prim (Pty_fnat m))
+     | _ -> Or_error.of_exn (Type_error ("mismatched parameter types", loc)))
+    (* if not (is_subtype tyv_arity (Btyv_prim Pty_nat)) then
+       Or_error.of_exn (Type_error ("arity should be a nature number", arity.exp_loc))
+       else (
+       let%bind () = (match tyv_arity, logits.exp_desc with
+       | Btyv_prim Pty_fnat n, E_array contents ->
+       if (List.length contents) = n then Ok () else Or_error.of_exn (Type_error ("arity should be a nature number", arity.exp_loc)
+       | _ -> Ok ()
+       );
+       Or_error.of_exn (Type_error ("arity should be a nature number", arity.exp_loc)
+       ) *)
+    (* let n = List.length exps in
+       let%bind () =
+       List.fold_result exps ~init:() ~f:(fun () exp ->
+       let%bind tyv = tycheck_exp globals locals exp in
+       if is_subtype tyv (Btyv_prim Pty_preal)
+       then Ok ()
+       else Or_error.of_exn (Type_error ("mismatched parameter types", loc)))
+       in
+       Ok (Btyv_prim (Pty_fnat n)) *)
   | D_bin (n, exp) ->
     let%bind tyv = tycheck_exp globals locals exp in
     lift [ Pty_ureal ] (Pty_fnat n) [ tyv ]
@@ -424,7 +540,9 @@ and tycheck_trm_impl verbose globals locals trm =
        Or_error.of_exn (Type_error ("unknown procedure " ^ proc_name.txt, proc_name.loc))
      | Some psigv ->
        if List.length psigv.psigv_arg_tys <> List.length args
-       then Or_error.of_exn (Type_error ("mismatched arity", trm.trm_loc))
+       then
+         Or_error.of_exn
+           (Type_error ("[tycheck_trm_impl][T_call] mismatched arity", trm.trm_loc))
        else (
          let%bind arg_tys =
            List.fold_result (List.rev args) ~init:[] ~f:(fun acc arg ->
@@ -465,7 +583,8 @@ and tycheck_cmd_impl verbose globals locals cmd =
 and tycheck_exp globals locals exp = tycheck_exp_impl globals locals exp
 
 and tycheck_trm verbose globals locals trm =
-  if verbose then Format.printf "tycheck_trm %a\n" print_trm trm;
+  if verbose
+  then Format.printf "[tycheck_trm]@\n%a@\n%a@\n" print_ctx locals print_trm trm;
   let%bind bty = tycheck_trm_impl verbose globals locals trm in
   if verbose
   then Format.printf "%a |- %a : %a\n" print_ctx locals print_trm trm print_base_tyv bty;

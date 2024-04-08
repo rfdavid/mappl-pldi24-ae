@@ -1,0 +1,42 @@
+(*
+https://github.com/SHoltzen/dice/blob/master/benchmarks/ladder-network.psi
+i = i1 i2
+0   0  0
+1   0  1 
+2   1  0
+3   1  1
+*)
+external def safe_dec : nat -> nat
+
+def ladder(i1: bool, i2: bool, depth: nat) : nat[4] = {
+    if depth = 0 then
+        return (
+            if i1 then 
+                if i2 then 3 else 2 end 
+            else
+                if i2 then 1 else 0 end 
+            end
+        )
+    else
+        if i1 then
+            output = sample(BERN(0.5));
+            fail = sample(BERN(0.001));
+            if fail then
+                ladder(false, false, safe_dec depth)
+            else
+                ladder(output, if output then false else true end, safe_dec depth)
+            end
+        else 
+            if i2 then 
+                output = sample(BERN(0.5));
+                ladder(output, if output then false else true end, safe_dec depth)
+            else 
+                ladder(false, false, safe_dec depth)
+            end
+        end
+    end
+}
+
+def model(len: nat) : nat[4] = {
+    ladder(true, false, len)
+}

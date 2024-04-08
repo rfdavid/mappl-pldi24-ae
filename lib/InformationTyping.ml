@@ -8,11 +8,28 @@ open Identifier
 open InformationType
 open Common
 
+let rec print_unlabeled_tyv fmt = function
+  | Utyv_prim pty -> print_prim_ty fmt pty
+  | Utyv_var var -> Format.fprintf fmt "%s" var
+  | Utyv_sum (lhs, rhs) ->
+    Format.fprintf fmt "%a + %a" print_labeled_tyv lhs print_labeled_tyv rhs
+  | Utyv_prod (lhs, rhs) ->
+    Format.fprintf fmt "%a * %a" print_labeled_tyv lhs print_labeled_tyv rhs
+  | Utyv_arrow (tyv1, tyv2) ->
+    Format.fprintf fmt "%a -> %a" print_labeled_tyv tyv1 print_labeled_tyv tyv2
+  | Utyv_dist tyv -> Format.fprintf fmt "%a dist" print_labeled_tyv tyv
+  | Utyv_array (n, tyv) -> Format.fprintf fmt "(%d, %a) array" n print_labeled_tyv tyv
+
+and print_labeled_tyv fmt = function
+  | Lty (utyv, l) ->
+    Format.fprintf fmt "(%a){%a}" print_unlabeled_tyv utyv print_level_expr l
+;;
+
 let inferred_is_L = function
   | Leaf (LV_const L) -> Ok true
   | Leaf (LV_const H) -> Ok false
   | Leaf (LV_var _) -> Ok true
-  | _ -> Or_error.of_exn @@ failwith "level expression contains variable"
+  | _ -> Or_error.of_exn @@ failwith "[inferred_is_L] level expression contains variable"
 ;;
 
 let rec is_all_L_utyv = function
@@ -31,11 +48,48 @@ let rec is_all_L_utyv = function
     let%bind b_rhs = is_all_L_ltyv rand in
     Ok (b_lhs && b_rhs)
   | Utyv_dist d -> is_all_L_ltyv d
-
+  | t -> 
+    Format.printf "%a" print_unlabeled_tyv t;
+    failwith "[is_all_L_utyv] not implemented"
 and is_all_L_ltyv = function
   | Lty (utyv, l_expr) ->
     let%bind outter = inferred_is_L l_expr in
     let%bind inside = is_all_L_utyv utyv in
+    Ok (outter && inside)
+;;
+
+let rec inferred_no_H = function
+  | Leaf (LV_const L) -> Ok true
+  | Leaf (LV_const H) -> Ok false
+  | Leaf (LV_var _) -> Ok true
+  | Join (lhs, rhs) ->
+    let%bind l = inferred_no_H lhs in
+    let%bind r = inferred_no_H rhs in
+    Ok (l && r)
+  | _ -> Or_error.of_exn @@ failwith "[inferred_no_H] TODO"
+;;
+
+let rec no_H_utyv = function
+  | Utyv_prim _ -> Ok true
+  | Utyv_var _ -> Ok true
+  | Utyv_sum (lhs, rhs) ->
+    let%bind b_lhs = no_H_ltyv lhs in
+    let%bind b_rhs = no_H_ltyv rhs in
+    Ok (b_lhs && b_rhs)
+  | Utyv_prod (lhs, rhs) ->
+    let%bind b_lhs = no_H_ltyv lhs in
+    let%bind b_rhs = no_H_ltyv rhs in
+    Ok (b_lhs && b_rhs)
+  | Utyv_arrow (rator, rand) ->
+    let%bind b_lhs = no_H_ltyv rator in
+    let%bind b_rhs = no_H_ltyv rand in
+    Ok (b_lhs && b_rhs)
+  | Utyv_dist d -> no_H_ltyv d
+  | _ -> failwith "[fvars_to_uvars_level_expr] TODO not implemented"
+and no_H_ltyv = function
+  | Lty (utyv, l_expr) ->
+    let%bind outter = inferred_no_H l_expr in
+    let%bind inside = no_H_utyv utyv in
     Ok (outter && inside)
 ;;
 
@@ -46,7 +100,7 @@ let rec labelit_impl : base_tyv -> unlabeled_tyv = function
   | Btyv_prod (lhs, rhs) -> Utyv_prod (labelit lhs, labelit rhs)
   | Btyv_arrow (rator, rand) -> Utyv_arrow (labelit rator, labelit rand)
   | Btyv_dist d -> Utyv_dist (labelit d)
-
+  | _ -> failwith "[labelit_impl] TODO not implemented"
 and labelit bty : labeled_tyv = Lty (labelit_impl bty, Leaf (gen_new_unification_var ()))
 
 let outterH bty = Lty (labelit_impl bty, Leaf (LV_const H))
@@ -65,6 +119,7 @@ let rec erase_label_unlabeled_tyv : unlabeled_tyv -> base_tyv = function
   | Utyv_arrow (rator, rand) ->
     Btyv_arrow (erase_label_labeled_tyv rator, erase_label_labeled_tyv rand)
   | Utyv_dist d -> Btyv_dist (erase_label_labeled_tyv d)
+  | _ -> failwith "[erase_label_unlabeled_tyv] TODO not implemented"
 
 and erase_label_labeled_tyv : labeled_tyv -> base_tyv = function
   | Lty (utyv, _) -> erase_label_unlabeled_tyv utyv
@@ -90,6 +145,7 @@ and fvars_to_uvars_unlabeled = function
   | Utyv_prod (lhs, rhs) -> Utyv_prod (fvars_to_uvars lhs, fvars_to_uvars rhs)
   | Utyv_arrow (rator, rand) -> Utyv_arrow (fvars_to_uvars rator, fvars_to_uvars rand)
   | Utyv_dist d -> Utyv_dist (fvars_to_uvars d)
+  | _ -> failwith "[fvars_to_uvars_unlabeled] TODO not implemented"
 ;;
 
 let rec free_vars_in = function
@@ -102,7 +158,8 @@ and free_vars_in_level_expr = function
   | Leaf (LV_uvar _) -> Int.Set.empty
   | Join (lhs, rhs) ->
     Set.union (free_vars_in_level_expr lhs) (free_vars_in_level_expr rhs)
-  | _ -> failwith "[free_vars_in_level_expr] TODO not implemented"
+  | Subst _ -> Int.Set.empty
+(* | _ -> failwith "[free_vars_in_level_expr] TODO not implemented" *)
 
 and free_vars_in_unlabeled = function
   | Utyv_prim _ -> Int.Set.empty
@@ -111,6 +168,10 @@ and free_vars_in_unlabeled = function
   | Utyv_prod (lhs, rhs) -> Set.union (free_vars_in lhs) (free_vars_in rhs)
   | Utyv_arrow (rator, rand) -> Set.union (free_vars_in rator) (free_vars_in rand)
   | Utyv_dist d -> free_vars_in d
+  | t -> 
+    Format.printf "%a" print_unlabeled_tyv t;
+    failwith "[free_vars_in_unlabeled] not implemented"
+;;
 ;;
 
 let subst_of_free_vars free_vars =
@@ -129,15 +190,17 @@ and subst_unlabeled ~f = function
   | Utyv_arrow (rator, rand) ->
     Utyv_arrow (visit_level_expr ~f rator, visit_level_expr ~f rand)
   | Utyv_dist d -> Utyv_dist (visit_level_expr ~f d)
+  | t -> 
+    Format.printf "%a" print_unlabeled_tyv t;
+    failwith "[subst_unlabeled] not implemented"
 ;;
 
-let update_uvars s = visit_level_expr ~f:(update_uvars_only s)
 let level_of (Lty (_, l)) = l
 
 let outter_is_L = function
   | Lty (_, Leaf (LV_const L)) -> Ok true
   | Lty (_, Leaf (LV_const H)) -> Ok false
-  | _ -> Or_error.of_exn @@ failwith "level expression contains variable"
+  | _ -> Or_error.of_exn @@ failwith "[outter_is_L] level expression contains variable"
 ;;
 
 let erase_label_proc_sigv { psigv_arg_tys; psigv_ret_ty } =
@@ -220,6 +283,9 @@ and join_type_unlabeled ~loc tyv1 tyv2
     if equal_labeled_tyv tyv1' tyv2'
     then Ok (Utyv_dist tyv1', [])
     else Or_error.of_exn (Type_error ("join error", loc))
+  | Utyv_array (n, tyv1'), Utyv_array (m, tyv2') when n = m ->
+    let%bind join, constraints = join_type ~loc tyv1' tyv2' in
+    Ok (Utyv_array (n, join), constraints)
   | _ -> Or_error.of_exn (Type_error ("join error", loc))
 
 and meet_type ~loc lhs rhs : (labeled_tyv * level_constraint list) Or_error.t =
@@ -257,7 +323,7 @@ and meet_type_unlabeled ~loc tyv1 tyv2 =
 ;;
 
 let is_prim_numeric = function
-  | Pty_ureal | Pty_preal | Pty_real | Pty_fnat _ | Pty_nat -> true
+  | Pty_ureal | Pty_preal | Pty_real | Pty_fnat _ | Pty_nat | Pty_int -> true
   | _ -> false
 ;;
 
@@ -267,22 +333,6 @@ type labeled_proc_sigv =
   ; lpsigv_ret_tyv : unlabeled_tyv
   }
 [@@deriving show]
-
-let rec print_unlabeled_tyv fmt = function
-  | Utyv_prim pty -> print_prim_ty fmt pty
-  | Utyv_var var -> Format.fprintf fmt "%s" var
-  | Utyv_sum (lhs, rhs) ->
-    Format.fprintf fmt "%a + %a" print_labeled_tyv lhs print_labeled_tyv rhs
-  | Utyv_prod (lhs, rhs) ->
-    Format.fprintf fmt "%a * %a" print_labeled_tyv lhs print_labeled_tyv rhs
-  | Utyv_arrow (tyv1, tyv2) ->
-    Format.fprintf fmt "%a -> %a" print_labeled_tyv tyv1 print_labeled_tyv tyv2
-  | Utyv_dist tyv -> Format.fprintf fmt "%a dist" print_labeled_tyv tyv
-
-and print_labeled_tyv fmt = function
-  | Lty (utyv, l) ->
-    Format.fprintf fmt "(%a){%a}" print_unlabeled_tyv utyv print_level_expr l
-;;
 
 let print_proc_arg_item fmt (var, bty) =
   Format.fprintf fmt "%s : %a" var print_labeled_tyv bty
@@ -326,6 +376,27 @@ let print_global_context fmt { top_external_pure_sigvs; top_pure_sigvs; top_proc
   Format.fprintf fmt "procs :\n%a\n\n" print_proc_sigvs top_proc_sigvs
 ;;
 
+let update_uvars s tyv =
+  (* Format.printf "[update_uvars]%a@\n" print_labeled_tyv tyv; *)
+  (* Format.printf "[update_uvars]%a@\n" (print_list ~f:print_subst_item) s; *)
+  visit_level_expr ~f:(update_uvars_only s) tyv
+;;
+
+let update_vars s tyv =
+  (* Format.printf "[update_vars]%a@\n" print_labeled_tyv tyv; *)
+  (* let a = Map.to_alist s in *)
+  (* Format.printf "[update_vars]%a@\n" (print_list ~f:print_subst_item) a; *)
+  visit_level_expr ~f:(subst_vars_only s) tyv
+;;
+
+let rec update_vars_of_ret s tyv =
+  match tyv with
+  | Lty (Utyv_arrow (lhs, rhs), l) ->
+    let rhs' = update_vars_of_ret s rhs in
+    Lty (Utyv_arrow (lhs, rhs'), l)
+  | _ -> update_vars s tyv
+;;
+
 let label (utyv : unlabeled_tyv) ~(at : LevelExpr.t) : labeled_tyv = Lty (utyv, at)
 let attach_L utyv = label utyv ~at:(Leaf (LV_const L))
 let attach_fresh_uvar utyv = label utyv ~at:(Leaf (gen_new_unification_var ()))
@@ -341,6 +412,9 @@ let rec annotate_L (btyv : base_tyv) : labeled_tyv =
   | Btyv_arrow (arg, ret) ->
     Lty (Utyv_arrow (annotate_L arg, annotate_L ret), Leaf (LV_const L))
   | Btyv_dist btyv -> Lty (Utyv_dist (annotate_L btyv), Leaf (LV_const L))
+  | t -> 
+    Format.printf "%a" print_base_tyv t;
+    failwith "[annotate_L] not implemented"
 ;;
 
 let rec annotate_free (btyv : base_tyv) : labeled_tyv =
@@ -354,6 +428,9 @@ let rec annotate_free (btyv : base_tyv) : labeled_tyv =
   | Btyv_arrow (arg, ret) ->
     Lty (Utyv_arrow (annotate_free arg, annotate_free ret), Leaf (gen_new_level_var ()))
   | Btyv_dist btyv -> Lty (Utyv_dist (annotate_free btyv), Leaf (gen_new_level_var ()))
+  | t -> 
+    Format.printf "%a" print_base_tyv t;
+    failwith "[annotate_free] not implemented"
 ;;
 
 let annotate_inside (btyv : base_tyv) : unlabeled_tyv =
@@ -364,6 +441,9 @@ let annotate_inside (btyv : base_tyv) : unlabeled_tyv =
   | Btyv_prod (lhs, rhs) -> Utyv_prod (annotate_free lhs, annotate_free rhs)
   | Btyv_arrow (arg, ret) -> Utyv_arrow (annotate_free arg, annotate_free ret)
   | Btyv_dist btyv -> Utyv_dist (annotate_free btyv)
+  | t -> 
+    Format.printf "%a" print_base_tyv t;
+    failwith "[annotate_inside] not implemented"
 ;;
 
 let annotate_L_context (ctx : Type.context) : context =
@@ -400,6 +480,9 @@ let create_pure_itype (btyv : base_tyv) : labeled_tyv =
     let rand = Lty (annotate_inside ret, Leaf (gen_new_unification_var ())) in
     Lty (Utyv_arrow (rator, rand), Leaf (LV_const L))
   | Btyv_dist btyv -> Lty (Utyv_dist (annotate_free btyv), Leaf (gen_new_level_var ()))
+  | t -> 
+    Format.printf "%a" print_base_tyv t;
+    failwith "[create_pure_itype] not implemented"
 ;;
 
 let collect_pure_sigs prog : labeled_tyv String.Map.t Or_error.t =
@@ -442,6 +525,9 @@ let rec create_external_pure_itype_positive ctx (btyv : base_tyv) : labeled_tyv 
     let rand = create_external_pure_itype_positive ctx' ret in
     Lty (Utyv_arrow (rator, rand), Leaf (LV_const L))
   | Btyv_dist btyv -> Lty (Utyv_dist (annotate_free btyv), Leaf (gen_new_level_var ()))
+  | t -> 
+    Format.printf "%a" print_base_tyv t;
+    failwith "[create_external_pure_itype_positive] not implemented"
 ;;
 
 let create_external_pure_itype (btyv : base_tyv) : labeled_tyv =
@@ -522,7 +608,10 @@ let tycheck_bop_prim bop pty1 pty2 =
     when is_prim_numeric pty1 && (is_prim_subtype pty1 pty2 || is_prim_subtype pty2 pty1)
     -> Ok Pty_bool
   | Bop_and, Pty_bool, Pty_bool | Bop_or, Pty_bool, Pty_bool -> Ok Pty_bool
-  | _ -> Or_error.of_exn (Type_error ("mismatched operand types", bop.loc))
+  | _ ->
+    Or_error.of_exn
+      (Type_error
+         ("[Information flow][tycheck_bop_prim] mismatched operand types", bop.loc))
 ;;
 
 let tycheck_bop_unlabeled bop arg1 arg2 =
@@ -530,7 +619,9 @@ let tycheck_bop_unlabeled bop arg1 arg2 =
   | Utyv_prim pty1, Utyv_prim pty2 ->
     let%bind res = tycheck_bop_prim bop pty1 pty2 in
     Ok (Utyv_prim res)
-  | _ -> Or_error.of_exn (Type_error ("mismatched operand types", bop.loc))
+  | _ ->
+    Or_error.of_exn
+      (Type_error ("[Information flow][tycheck_bop] mismatched operand types", bop.loc))
 ;;
 
 let tycheck_bop bop lhs rhs : (labeled_tyv * level_constraint list) Or_error.t =
@@ -559,7 +650,10 @@ let rec tycheck_exp_impl
        if String.equal var_name.txt "LogSumExp"
        then Or_error.of_exn (Type_error (var_name.txt, exp.exp_loc))
        else
-         Or_error.of_exn (Type_error ("undefined variable " ^ var_name.txt, exp.exp_loc)))
+         Or_error.of_exn
+           (Type_error
+              ( "[Information flow][tycheck_exp] undefined variable " ^ var_name.txt
+              , exp.exp_loc )))
   | E_triv -> Ok (Lty (Utyv_prim Pty_unit, Leaf (LV_const L)), [])
   | E_bool _ -> Ok (Lty (Utyv_prim Pty_bool, Leaf (LV_const L)), [])
   | E_cond (exp0, exp1, exp2) ->
@@ -595,10 +689,10 @@ let rec tycheck_exp_impl
     Ok (tyv, constraints @ constraints1 @ constraints2)
   | E_abs (arg_name, arg_type, body) ->
     let arg_tyv = annotate_free (erase_loc_base_ty arg_type) in
-    let%bind ret_type, constraints =
+    let%bind (Lty (_, ret_level) as ret_type), constraints =
       tycheck_exp verbose globals (Map.set locals ~key:arg_name.txt ~data:arg_tyv) body
     in
-    Ok (attach_L (Utyv_arrow (arg_tyv, ret_type)), constraints)
+    Ok (Lty (Utyv_arrow (arg_tyv, ret_type), ret_level), constraints)
   | E_app (exp1, exp2) ->
     let%bind rand_type, constraints2 = tycheck_exp verbose globals locals exp2 in
     (* let%bind rator, constraints1 = (match tycheck_exp verbose globals locals exp1 with
@@ -622,12 +716,16 @@ let rec tycheck_exp_impl
          | Type_error (msg, _) ->
            if String.equal msg "LogSumExp"
            then (
-             match rand_type with
-             | Lty (Utyv_arrow (a, Lty (Utyv_prim Pty_real, l_r)), l_k) ->
+             let fvars = free_vars_in rand_type in
+             let s = subst_of_free_vars fvars in
+             let tyv' = update_vars s rand_type in
+             let tyv'' = update_uvars (Map.to_alist s) tyv' in
+             match tyv'' with
+             | Lty (Utyv_arrow (a, Lty (Utyv_prim Pty_real, l_r)), _) ->
                let ret_type = Lty (Utyv_prim Pty_real, l_r) in
                let ub_ret = Lty (Utyv_arrow (a, ret_type), Leaf (LV_const L)) in
                let lb_ub_ret = Lty (Utyv_arrow (a, ub_ret), Leaf (LV_const L)) in
-               Ok (Lty (Utyv_arrow (rand_type, lb_ub_ret), l_k), [])
+               Ok (Lty (Utyv_arrow (rand_type, lb_ub_ret), Leaf (LV_const L)), [])
              (* Ok (Btyv_arrow(rand_type,  Btyv_arrow(a, Btyv_arrow (a, Btyv_prim Pty_real)))) *)
              | _ ->
                Or_error.of_exn
@@ -635,7 +733,17 @@ let rec tycheck_exp_impl
                     ("Argument of of LogSumExp should be function type", exp.exp_loc)))
            else Error exn
          | _ -> Error exn)
-      | Ok rator -> Ok rator
+      | Ok (rator, constraints) ->
+        (match exp1.exp_desc with
+         | E_var _ | E_abs _ ->
+           (* Format.printf "!!!!!%a\n" print_exp exp1; *)
+           let fvars = free_vars_in rator in
+           let s = subst_of_free_vars fvars in
+           let tyv' = update_vars s rator in
+           (* let tyv'' =  update_uvars (Map.to_alist s) tyv' in *)
+           Ok (tyv', constraints)
+         | E_app _ -> Ok (rator, constraints)
+         | _ -> failwith "[E_app] not support")
     in
     let is_external =
       match exp1.exp_desc with
@@ -648,9 +756,11 @@ let rec tycheck_exp_impl
        let s = subst_of_free_vars fvars in
        visit_level_expr ~f:(subst_vars_only s) rator
        end else rator in *)
-    let fvars = free_vars_in rator in
-    let s = subst_of_free_vars fvars in
-    let (Lty (tyv1, level1)) = visit_level_expr ~f:(subst_vars_only s) rator in
+    (* Format.printf "!!!!%a@\n" print_labeled_tyv rator; *)
+    (* let fvars = free_vars_in rator in
+       let s = subst_of_free_vars fvars in
+       let (Lty (tyv1, level1)) = visit_level_expr ~f:(subst_vars_only s) rator in *)
+    let (Lty (tyv1, level1)) = rator in
     (match tyv1 with
      | Utyv_arrow (tyv11, tyv12) ->
        if is_subtype rand_type tyv11
@@ -717,7 +827,36 @@ let rec tycheck_exp_impl
              @ constraints_dist ))
        else Or_error.of_exn (Type_error ("[logPr] mismatched types", dist.exp_loc))
      | _ -> Or_error.of_exn (Type_error ("non-distribution types", dist.exp_loc)))
-  | E_logML _ -> failwith "TODO: not implemented"
+  | E_logML m ->
+    let%bind tyv, constraints = tycheck_cmd verbose globals locals m in
+    (match tyv.cmd_type |> Option.value_exn with
+     | Lty (Utyv_prim Pty_unit, l) -> Ok (Lty (Utyv_prim Pty_real, l), constraints)
+     | _ ->
+       Format.printf "%a@\n" print_exp exp;
+       failwith "[E_logML] Wrong cmd type")
+  | E_call (_, _) -> failwith "TODO: not implemented"
+  | E_array contents ->
+    let size = List.length contents in
+    (match contents with
+     | [] ->
+       Ok
+         ( Lty
+             ( Utyv_array (0, Lty (Utyv_prim Pty_unit, Leaf (LV_const L)))
+             , Leaf (LV_const L) )
+         , [] )
+     | x :: [] ->
+       let%bind tyv_x, constraints = tycheck_exp verbose globals locals x in
+       Ok (Lty (Utyv_array (1, tyv_x), Leaf (LV_const L)), constraints)
+     | x :: xs ->
+       let%bind init = tycheck_exp verbose globals locals x in
+       let%bind joined, constraints =
+         xs
+         |> List.fold_result ~init ~f:(fun (acc, constraints) y ->
+           let%bind tyv_y, constraints_y = tycheck_exp verbose globals locals y in
+           let%bind tyv_joined, constraints_join = join_type ~loc:exp.exp_loc acc tyv_y in
+           Ok (tyv_joined, constraints @ constraints_y @ constraints_join))
+       in
+       Ok (Lty (Utyv_array (size, joined), Leaf (LV_const L)), constraints))
 
 and tycheck_dist verbose ~loc globals locals dist
   : (labeled_tyv * level_constraint list) Or_error.t
@@ -746,6 +885,16 @@ and tycheck_dist verbose ~loc globals locals dist
     let%bind utyv = lift [ Pty_ureal ] Pty_bool [ args_tyv ] in
     let (Lty (_, l)) = args_tyv in
     Ok (label utyv ~at:l, constraints)
+  | D_exp lambda ->
+    let%bind args_tyv, constraints = tycheck_exp verbose globals locals lambda in
+    let%bind utyv = lift [ Pty_preal ] Pty_preal [ args_tyv ] in
+    let (Lty (_, l)) = args_tyv in
+    Ok (label utyv ~at:l, constraints)
+  | D_pois lambda ->
+    let%bind args_tyv, constraints = tycheck_exp verbose globals locals lambda in
+    let%bind utyv = lift [ Pty_preal ] Pty_preal [ args_tyv ] in
+    let (Lty (_, l)) = args_tyv in
+    Ok (label utyv ~at:l, constraints)
   | D_normal (exp1, exp2) ->
     let%bind tyv1, constraints1 = tycheck_exp verbose globals locals exp1 in
     let%bind tyv2, constraints2 = tycheck_exp verbose globals locals exp2 in
@@ -766,6 +915,32 @@ and tycheck_dist verbose ~loc globals locals dist
     Ok
       ( label utyv ~at:(Leaf ufresh)
       , (Leq (l1, Leaf ufresh) :: Leq (l2, Leaf ufresh) :: constraints1) @ constraints2 )
+  | D_gamma (concentration, rate) ->
+    let%bind tyv1, constraints1 = tycheck_exp verbose globals locals concentration in
+    let%bind tyv2, constraints2 = tycheck_exp verbose globals locals rate in
+    let%bind utyv = lift [ Pty_nat; Pty_nat ] Pty_preal [ tyv1; tyv2 ] in
+    let ufresh = gen_new_unification_var () in
+    let (Lty (_, l1)) = tyv1 in
+    let (Lty (_, l2)) = tyv2 in
+    Ok
+      ( label utyv ~at:(Leaf ufresh)
+      , (Leq (l1, Leaf ufresh) :: Leq (l2, Leaf ufresh) :: constraints1) @ constraints2 )
+  | D_cat logits ->
+    let%bind Lty (utyv_logits, level_logits), constraints =
+      tycheck_exp verbose globals locals logits
+    in
+    (match utyv_logits with
+     | Utyv_array (m, Lty (tyv_contents, level_contents)) ->
+       if not (is_subtype_unlabeled tyv_contents (Utyv_prim Pty_real))
+       then Or_error.of_exn (Type_error ("mismatched parameter types", loc))
+       else (
+         let fresh = gen_new_unification_var () in
+         Ok
+           ( Lty (Utyv_prim (Pty_fnat m), Leaf fresh)
+           , Leq (level_contents, Leaf fresh)
+             :: Leq (level_logits, Leaf fresh)
+             :: constraints ))
+     | _ -> Or_error.of_exn (Type_error ("mismatched parameter types", loc)))
   | _ -> failwith "[tycheck_dist] not implemented"
 
 and tycheck_trm_impl verbose globals locals trm : (trm * level_constraint list) Or_error.t
@@ -883,8 +1058,10 @@ and tycheck_trm_impl verbose globals locals trm : (trm * level_constraint list) 
              List.map2_exn arg_tys param_tys ~f:(fun (Lty (_, l)) (Lty (_, l')) ->
                Leq (l, l'))
            in
-           let ret_ty = visit_level_expr ~f:(subst_vars_only s) psigv.psigv_ret_ty in
-           let trm' = update_type_trm trm ret_ty in
+           let ret_ty = update_vars s psigv.psigv_ret_ty in
+           let ret_ty' = update_uvars (Map.to_alist s) ret_ty in
+           (* let ret_ty = visit_level_expr ~f:(subst_vars_only s) psigv.psigv_ret_ty in *)
+           let trm' = update_type_trm trm ret_ty' in
            Ok (trm', new_constraints @ constraints))))
   | T_factor exp ->
     let%bind exp_type, constraints = tycheck_exp verbose globals locals exp in
@@ -991,6 +1168,14 @@ and tycheck_trm verbose globals locals trm : (trm * level_constraint list) Or_er
 and tycheck_exp verbose globals locals exp
   : (labeled_tyv * level_constraint list) Or_error.t
   =
+  if verbose
+  then
+    Format.printf
+      "[tycheck_exp type]\n%a\n\t|-\n\t%a\t: *\n"
+      print_ctx
+      locals
+      print_exp
+      exp;
   let%bind bty, constraints = tycheck_exp_impl verbose globals locals exp in
   if verbose
   then
@@ -1023,6 +1208,7 @@ let tycheck_proc verbose globals proc name =
     let infered =
       { psigv_arg_tys = psigv.psigv_arg_tys; psigv_ret_ty = infered_ret_ty }
     in
+    if verbose then Format.printf "[tycheck_proc]@\n%a@\n" print_proc_sigv infered;
     Ok infered)
 ;;
 

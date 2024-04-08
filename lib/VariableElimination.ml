@@ -27,6 +27,8 @@ let halt_transformed btyv =
   k
 ;;
 
+(* mknoloc_exp @@ E_var (make_id "halt_transformed") *)
+
 let map_merge map1 map2 =
   Map.fold map1 ~init:map2 ~f:(fun ~key ~data m -> Map.add_exn m ~key ~data)
 ;;
@@ -93,17 +95,13 @@ let try_elim_disc
       Typing.tycheck_exp (ITyping.erase_label_global_context gloabals) combined_locals d
     in
     (match bty with
-     | Btyv_dist bty' ->
-       if Typing.is_subtype bty' (Btyv_prim Pty_bool)
-       then
-         Ok
-           { trm_loc
-           ; trm_desc = T_factor (mknoloc_exp @@ E_logPr (d, var))
-           ; trm_type = None
-           }
-       else
-         (* TODO support distributions type other thant Dist of Bool*)
-         Or_error.of_exn @@ VE_Error ("not discrete", trm_loc)
+     | Btyv_dist (Btyv_prim Pty_bool) | Btyv_dist (Btyv_prim (Pty_fnat _)) ->
+       Ok
+         { trm_loc
+         ; trm_desc = T_factor (mknoloc_exp @@ E_logPr (d, var))
+         ; trm_type = None
+         }
+     | Btyv_dist _ -> Or_error.of_exn @@ VE_Error ("not discrete", trm_loc)
      | _ -> Or_error.of_exn @@ VE_Error ("not a distribution", trm_loc))
   | _ -> Or_error.of_exn @@ VE_Error ("not a sample", trm_loc)
 ;;
@@ -122,7 +120,7 @@ let rec split_impl
   if verbose
   then
     Format.printf
-      "[split_impl]\n%a\n[split_impl]\t%a\n"
+      "[split_impl]@\n%a\n[split_impl]@;<2 4>@[%a@]\n"
       ITyping.print_ctx
       locals
       print_cmd
@@ -130,30 +128,36 @@ let rec split_impl
   match cmd_desc with
   | M_trm trm ->
     let%bind ty = ITyping.type_check_trm verbose info_globals locals trm in
-    if%bind ITyping.outter_is_L ty
+    (* Format.printf "!!!%a@\n" ITyping.print_labeled_tyv ty; *)
+    if%bind ITyping.no_H_ltyv ty
     then (
       let mH = mknoloc_cmd @@ M_trm (mknoloc_trm @@ T_ret (mknoloc_exp @@ E_triv)) in
       let mL = { cmd_desc; cmd_loc; cmd_type = None } in
-      Ok (mH, mL))
+      Ok (mH, mL, String.Map.empty))
     else (
       let mH = { cmd_desc; cmd_loc; cmd_type = None } in
       let mL = mknoloc_cmd @@ M_trm (mknoloc_trm @@ T_ret (mknoloc_exp @@ E_triv)) in
-      Ok (mH, mL))
+      Ok (mH, mL, String.Map.empty))
   | M_seq (t, m) ->
     let%bind ty = ITyping.type_check_trm verbose info_globals locals t in
-    let%bind mH, mL = split_impl verbose info_globals locals m in
-    if%bind ITyping.outter_is_L ty
-    then Ok (mH, { cmd_loc; cmd_desc = M_seq (t, mL); cmd_type = None })
-    else Ok ({ cmd_loc; cmd_desc = M_seq (t, mH); cmd_type = None }, mL)
+    let%bind mH, mL, cL = split_impl verbose info_globals locals m in
+    if%bind ITyping.no_H_ltyv ty
+    then Ok (mH, { cmd_loc; cmd_desc = M_seq (t, mL); cmd_type = None }, cL)
+    else Ok ({ cmd_loc; cmd_desc = M_seq (t, mH); cmd_type = None }, mL, cL)
   | M_bnd (id, t, m) ->
     let%bind ty = ITyping.type_check_trm verbose info_globals locals t in
     let locals' = locals |> Map.add_exn ~key:id.txt ~data:ty in
-    let%bind mH, mL = split_impl verbose info_globals locals' m in
-    if%bind ITyping.is_all_L_ltyv ty
-    then
-      (* if is_L && (not (apperas_cmd mL id.txt)) then *)
-      Ok (mH, { cmd_loc; cmd_desc = M_bnd (id, t, mL); cmd_type = None })
-    else Ok ({ cmd_loc; cmd_desc = M_bnd (id, t, mH); cmd_type = None }, mL)
+    let%bind mH, mL, cL = split_impl verbose info_globals locals' m in
+    (* Format.printf "!!!%a@\n" ITyping.print_labeled_tyv ty; *)
+    (* let%bind is_L = ITyping.is_all_L_ltyv ty in *)
+    if%bind ITyping.no_H_ltyv ty
+    then (
+      (* if is_L && (not (apperas_cmd mH id.txt)) then *)
+      let cL' =
+        cL |> Map.add_exn ~key:id.txt ~data:(ITyping.erase_label_labeled_tyv ty)
+      in
+      Ok (mH, { cmd_loc; cmd_desc = M_bnd (id, t, mL); cmd_type = None }, cL'))
+    else Ok ({ cmd_loc; cmd_desc = M_bnd (id, t, mH); cmd_type = None }, mL, cL)
 ;;
 
 let split
@@ -181,7 +185,7 @@ let split
   (* let%bind s = Solver.solve false constraints in *)
   (* let cmd'' = ITyping.subst_level_cmd s cmd' in *)
   (* Format.printf "[split todo]@.%a@." ITyping.print_typed_cmd cmd''; *)
-  let%bind mH, mL =
+  let%bind mH, mL, cL =
     split_impl
       verbose
       (info_globals : IType.global_context)
@@ -190,9 +194,12 @@ let split
   in
   if verbose
   then (
+    Format.printf "[split] %s\n" key;
+    Format.printf "[split]@.%a@." ITyping.print_ctx info_locals;
+    Format.printf "[split] %a\n" print_cmd cmd;
     Format.printf "[split resutl mH]@.%a@." print_cmd mH;
     Format.printf "[split resutl mL]@.%a@." print_cmd mL);
-  Ok (mH, mL)
+  Ok (mH, mL, cL)
 ;;
 
 let trm_to_exp
@@ -222,7 +229,7 @@ let rec elim_D_intro
   if verbose
   then
     Format.printf
-      "[elim_D_intro]\t%a\n\t%a|-%a\n"
+      "[elim_D_intro]  @[%a@]@\n\t%a|-%a\n"
       ITyping.print_ctx
       info_locals
       Typing.print_ctx
@@ -237,9 +244,12 @@ let rec elim_D_intro
     let%bind cmd', todo = elim_D_intro verbose gloabals info_locals locals cmd in
     let trm' = mknoloc_trm @@ T_factor (mknoloc_exp @@ E_logPr (d, v)) in
     Ok ({ cmd_loc; cmd_desc = M_seq (trm', cmd'); cmd_type }, todo)
-  | M_seq (trm, cmd) ->
+  | M_seq (({ trm_desc = T_call _; _ } as trm), cmd)
+  | M_seq (({ trm_desc = T_branch _; _ } as trm), cmd)
+  | M_seq (({ trm_desc = T_factor _; _ } as trm), cmd) ->
     let%bind cmd', todo = elim_D_intro verbose gloabals info_locals locals cmd in
     Ok ({ cmd_loc; cmd_desc = M_seq (trm, cmd'); cmd_type }, todo)
+  | M_seq (_, _) -> failwith "elim_D_intro TODO M_seq (trm, cmd)"
   | M_bnd (id, trm, cmd) ->
     let combined_locals = map_merge locals (ITyping.erase_label_context info_locals) in
     let%bind btyv =
@@ -256,7 +266,18 @@ let rec elim_D_intro
      with
      | Ok trm' ->
        Ok ({ cmd_loc; cmd_desc = M_seq (trm', cmd'); cmd_type }, (id, btyv) :: todos)
-     | _ -> Ok ({ cmd_loc; cmd_desc = M_bnd (id, trm, cmd'); cmd_type }, todos))
+     | _ ->
+       (match trm.trm_desc with
+        | T_observe (d, v) ->
+          let trm' = mknoloc_trm @@ T_factor (mknoloc_exp @@ E_logPr (d, v)) in
+          Ok ({ cmd_loc; cmd_desc = M_bnd (id, trm', cmd'); cmd_type }, todos)
+        (* | T_call _ | T_branch _ | T_factor _ | T_ret _ | T_choose _ -> *)
+        | _ ->
+          Ok ({ cmd_loc; cmd_desc = M_bnd (id, trm, cmd'); cmd_type }, todos)
+        (* | _ ->
+          Format.printf "!!!<@\n%a@\n>!!!@\n" print_trm trm;
+          failwith "[elim_D_intro] M_bnd (id, trm, cmd)" *)
+       ))
 ;;
 
 let rec elim_control_flow
@@ -270,7 +291,7 @@ let rec elim_control_flow
   if verbose
   then
     Format.printf
-      "[elim_control_flow]\n%a\n\t%a\n"
+      "[elim_control_flow]@\n%a@\n    %a@\n"
       ITyping.print_ctx
       info_locals
       print_cmd
@@ -311,11 +332,13 @@ let rec elim_control_flow
         combined_locals
         trm
     in
-    let%bind mH, mL =
+    let%bind mH, mL, cL =
       split verbose info_globals info_locals locals ~key:id.txt ~btyv cmd
     in
+    (* Format.printf "!!! M_bnd Tbranch"; *)
     let k_id = make_id @@ "k_of_" ^ id.txt in
-    let%bind eH = elim_cmd verbose info_globals info_locals locals mH in
+    let locals' = map_merge locals cL in
+    let%bind eH = elim_cmd verbose info_globals info_locals locals' mH in
     let bty = to_base_ty btyv in
     let k = mknoloc_exp @@ E_abs (id, bty, eH) in
     let k_trm = mknoloc_trm @@ T_ret k in
@@ -343,11 +366,13 @@ let rec elim_control_flow
         combined_locals
         trm
     in
-    let%bind mH, mL =
+    let%bind mH, mL, cL =
       split verbose info_globals info_locals locals ~key:id.txt ~btyv cmd
     in
+    (* Format.printf "!!! M_bnd T_call"; *)
     let locals' = locals |> Map.add_exn ~key:id.txt ~data:btyv in
-    let%bind eH = elim_cmd verbose info_globals info_locals locals' mH in
+    let locals'' = map_merge locals' cL in
+    let%bind eH = elim_cmd verbose info_globals info_locals locals'' mH in
     let k = mknoloc_exp @@ E_abs (id, to_base_ty btyv, eH) in
     let k_trm = mknoloc_trm @@ T_ret k in
     let k_id = make_id @@ "k_of_" ^ id.txt in
@@ -358,13 +383,23 @@ let rec elim_control_flow
       mknoloc_cmd
       @@ M_bnd (k_id, k_trm, mknoloc_cmd @@ M_trm (mknoloc_trm @@ T_factor call_exp))
     in
-    Ok (concat_cmd mL call_cmd)
+    let cmd_todo = concat_cmd mL call_cmd in
+    elim_control_flow verbose info_globals info_locals locals todo cmd_todo
   | M_bnd (id, { trm_desc = T_ret e; trm_loc; trm_type }, cmd) ->
     let trm = { trm_desc = T_ret e; trm_loc; trm_type } in
     let%bind cmd' = elim_control_flow verbose info_globals info_locals locals todo cmd in
     Ok { cmd_loc; cmd_desc = M_bnd (id, trm, cmd'); cmd_type = None }
   | M_bnd (id, ({ trm_desc = T_sample _; _ } as trm), cmd) ->
-    let%bind cmd' = elim_control_flow verbose info_globals info_locals locals todo cmd in
+    let combined_locals = map_merge locals (ITyping.erase_label_context info_locals) in
+    let%bind btyv =
+      Typing.tycheck_trm
+        verbose
+        (ITyping.erase_label_global_context info_globals)
+        combined_locals
+        trm
+    in
+    let locals' = locals |> Map.add_exn ~key:id.txt ~data:btyv in
+    let%bind cmd' = elim_control_flow verbose info_globals info_locals locals' todo cmd in
     Ok { cmd_loc; cmd_desc = M_bnd (id, trm, cmd'); cmd_type = None }
   | M_bnd (id, ({ trm_desc = T_factor _; _ } as trm), cmd) ->
     let%bind cmd' = elim_control_flow verbose info_globals info_locals locals todo cmd in
@@ -379,7 +414,7 @@ let rec elim_control_flow
         combined_locals
         trm
     in
-    let%bind mH, mL =
+    let%bind mH, mL, cL =
       split verbose info_globals info_locals locals ~key:id.txt ~btyv cmd
     in
     if verbose
@@ -388,7 +423,8 @@ let rec elim_control_flow
       Format.printf "[T_choose mL]%a\n" print_cmd mL;
       Format.printf "%a\n" print_base_tyv btyv);
     let locals' = locals |> Map.add_exn ~key:id.txt ~data:btyv in
-    let%bind eH = elim_cmd verbose info_globals info_locals locals' mH in
+    let locals'' = map_merge locals' cL in
+    let%bind eH = elim_cmd verbose info_globals info_locals locals'' mH in
     let k = mknoloc_exp @@ E_abs (id, to_base_ty btyv, eH) in
     let k_id = make_id @@ "k_of_" ^ id.txt in
     let k_trm = mknoloc_trm @@ T_ret k in
@@ -407,7 +443,9 @@ let rec elim_control_flow
     let y_cmd = mknoloc_cmd @@ M_trm (mknoloc_trm @@ T_factor y_exp) in
     let cmd' = concat_cmd mL (mknoloc_cmd @@ M_bnd (k_id, k_trm, y_cmd)) in
     Ok (concat_cmd mL cmd')
-  | _ -> failwith "TODO: elim_control_flow"
+  | _ ->
+    (* Format.printf "!!!!!!<@\n%a@\n>!!!!!" print_cmd cmd; *)
+    failwith "TODO: elim_control_flow"
 
 and elim_D_elim
   verbose
@@ -427,19 +465,28 @@ and elim_D_elim
   | (y, bty_y) :: todo ->
     let todo' = List.map todo ~f:(fun (name, btyv) -> name.txt, btyv) in
     let locals' = map_merge locals (String.Map.of_alist_exn todo') in
-    let%bind mH, mL =
-      split verbose info_globals info_locals locals ~key:y.txt ~btyv:bty_y cmd
+    let%bind mH, mL, cL =
+      split verbose info_globals info_locals locals' ~key:y.txt ~btyv:bty_y cmd
     in
     if verbose
     then (
       Format.printf "[elim_D_elim mH]%a\n" print_cmd mH;
       Format.printf "[elim_D_elim mL]%a\n" print_cmd mL);
     let locals'' = locals' |> Map.add_exn ~key:y.txt ~data:bty_y in
-    let%bind eH = elim_cmd verbose info_globals info_locals locals'' mH in
+    let locals''' = map_merge locals'' cL in
+    let%bind eH = elim_cmd verbose info_globals info_locals locals''' mH in
     let k = mknoloc_exp @@ E_abs (y, to_base_ty bty_y, eH) in
     let k_id = make_id @@ "k_of_" ^ y.txt in
     let k_trm = mknoloc_trm @@ T_ret k in
     (* let y_exp = mknoloc_exp @@ E_app (mknoloc_exp @@ E_var (make_id "LogSumExp"), mknoloc_exp @@ E_var k_id) in *)
+    let%bind lb, ub =
+      match bty_y with
+      | Btyv_prim Pty_bool -> Ok (mknoloc_exp @@ E_bool false, mknoloc_exp @@ E_bool true)
+      | Btyv_prim (Pty_fnat n) -> Ok (mknoloc_exp @@ E_nat 0, mknoloc_exp @@ E_nat (n - 1))
+      | _ ->
+        Or_error.of_exn
+        @@ VE_Error ("should not elim non-discrete RV with LogSumExp", cmd.cmd_loc)
+    in
     let y_exp =
       mknoloc_exp
       @@ E_app
@@ -449,8 +496,8 @@ and elim_D_elim
                     @@ E_app
                          ( mknoloc_exp @@ E_var (make_id "LogSumExp")
                          , mknoloc_exp @@ E_var k_id )
-                  , mknoloc_exp @@ E_bool false )
-           , mknoloc_exp @@ E_bool true )
+                  , lb )
+           , ub )
     in
     let y_cmd = mknoloc_cmd @@ M_trm (mknoloc_trm @@ T_factor y_exp) in
     let cmd' = concat_cmd mL (mknoloc_cmd @@ M_bnd (k_id, k_trm, y_cmd)) in
@@ -465,10 +512,16 @@ and elim_cmd
   =
   if verbose
   then (
-    Format.printf "[elim_cmd]@.%a@." ITyping.print_ctx info_locals;
-    Format.printf "[elim_cmd]@.%a@." Typing.print_ctx locals;
+    Format.printf "[elim_cmd]@.@[%a@]@." ITyping.print_ctx info_locals;
+    Format.printf "[elim_cmd]@.@[%a@." Typing.print_ctx locals;
     Format.printf "[elim_cmd]@.%a@." print_cmd cmd);
   let%bind m_no_sample, todo = elim_D_intro verbose info_globals info_locals locals cmd in
+  if verbose
+  then
+    Format.printf
+      "[elim_cmd] after elim_D_intro we have @\ntodos:  @[%a@]@\n"
+      (Common.print_list ~f:print_id_btyv)
+      todo;
   let%bind m_summed =
     elim_D_elim verbose info_globals info_locals locals todo m_no_sample
   in
@@ -509,12 +562,13 @@ and cmd_to_exp
         combined_locals
         trm
     in
-    let%bind mH, mL =
+    let%bind mH, mL, cL =
       split verbose info_globals info_locals locals ~key:id.txt ~btyv cmd
     in
     let locals' = locals |> Map.add_exn ~key:id.txt ~data:btyv in
+    let locals'' = map_merge locals' cL in
     (* TODO locals should also contains bindings created by mL *)
-    let%bind eH = elim_cmd verbose info_globals info_locals locals' mH in
+    let%bind eH = elim_cmd verbose info_globals info_locals locals'' mH in
     let factor_eH = mknoloc_cmd @@ M_trm (mknoloc_trm @@ T_factor eH) in
     let y_cmd = mknoloc_cmd @@ M_bnd (id, trm, factor_eH) in
     let logML_y_cmd = mknoloc_exp @@ E_logML y_cmd in
@@ -558,6 +612,27 @@ let translate_proc_sig (proc_sigv : proc_sigv) =
   Btyv_arrow (k_type, tail)
 ;;
 
+let translate_info_proc_sig (proc_sigv : IType.proc_sigv) : IType.labeled_tyv =
+  let open IType in
+  let open Level in
+  let open LevelExpr in
+  let (Lty (ret_ty, ret_l)) = proc_sigv.psigv_ret_ty in
+  let fresh = gen_new_level_var () in
+  let tail =
+    List.fold_right
+      proc_sigv.psigv_arg_tys
+      ~init:(Lty (Utyv_prim Pty_real, Join (ret_l, Leaf fresh)))
+      ~f:(fun (_, ty) tail -> Lty (Utyv_arrow (ty, tail), Leaf (LV_const L)))
+  in
+  let not_sure = gen_new_level_var () in
+  let k_type =
+    Lty
+      ( Utyv_arrow (Lty (ret_ty, Leaf not_sure), Lty (Utyv_prim Pty_real, Leaf not_sure))
+      , Leaf fresh )
+  in
+  Lty (Utyv_arrow (k_type, tail), Leaf (LV_const L))
+;;
+
 let elim_proc verbose (info_globals : IType.global_context) name proc =
   let%bind btyv =
     Typing.tycheck_proc verbose (ITyping.erase_label_global_context info_globals) proc
@@ -586,10 +661,10 @@ let elim_proc verbose (info_globals : IType.global_context) name proc =
 
 let elim_prog verbose prog =
   let%bind { top_external_pure_sigvs; top_pure_sigvs; top_proc_sigvs } =
-    ITyping.tycheck_prog verbose prog
+    ITyping.tycheck_prog false prog
   in
-  let%bind non_info_top_proc_sigvs = Typing.collect_proc_sigs prog in
-  let elim_globals = non_info_top_proc_sigvs |> String.Map.map ~f:translate_proc_sig in
+  (* let%bind non_info_top_proc_sigvs = Typing.collect_proc_sigs prog in *)
+  let elim_globals = top_proc_sigvs |> String.Map.map ~f:translate_info_proc_sig in
   (* let globals =
      { Type.top_external_pure_sigvs = String.Map.empty
      ; top_proc_sigvs = String.Map.empty
@@ -599,7 +674,7 @@ let elim_prog verbose prog =
     { IType.top_external_pure_sigvs
     ; top_proc_sigvs
     ; top_pure_sigvs =
-        map_merge (ITyping.labelit_context elim_globals) top_pure_sigvs
+        map_merge elim_globals top_pure_sigvs
         (* TODO: think about orignizing non info globals and info globals *)
     }
   in

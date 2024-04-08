@@ -1,0 +1,15 @@
+external def safe_dec : nat -> nat
+
+def fig1(x: bool, depth: nat) : Unit = {
+    if depth = 0
+    then observe x from BERN(1)
+    else 
+        y = sample(BERN(if x then 0.3 else 0.4 end));
+        fig1(y, safe_dec depth)
+    end
+}
+
+def model(len: nat) : Unit = {
+    x1 = sample(BERN(0.1));
+    fig1(x1, len)
+}

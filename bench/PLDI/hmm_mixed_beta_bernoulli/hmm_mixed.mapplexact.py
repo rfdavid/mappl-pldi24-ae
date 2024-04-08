@@ -7,88 +7,29 @@ from functools import cache
 import argparse
 
 
-def hmm_mixed(_):
-    return lambda_4(_)
+def hmm_mixed(k, z, data):
+    temp_0 = len(data)
+    if temp_0 == 0:
+        return k(0.0)
+    else:
+        k_of_z_prime = partial(lambda_0, data, k, z)
+        temp_1 = LogSumExp(k_of_z_prime, False, True)
+        temp_2 = logML_1(data, z)
+        return temp_1 + temp_2
+    
 
 @cache
-def lambda_4(_):
-    @cache
-    def f_of_k(k):
-        return lambda_3(k)
-    return f_of_k(_)
-
+def lambda_0(data, k, z, z_prime):
+    temp_3 = bias(z)
+    temp_4 = tail(data)
+    temp_5 = hmm_mixed(k, z_prime, temp_4)
+    return dist.Bernoulli(temp_3).log_prob(torch.tensor(z_prime, dtype=torch.float)) \
+           + temp_5
 @cache
-def lambda_3(_):
-    @cache
-    def f_of_k(k):
-        @cache
-        def f_of_z(z):
-            temp_0 = lambda_2(z)
-            return temp_0(k)
-        return f_of_z
-    return f_of_k(_)
-
-@cache
-def lambda_2(_):
-    @cache
-    def f_of_z(z):
-        @cache
-        def f_of_k(k):
-            @cache
-            def f_of_data(data):
-                temp_1 = len(data)
-                if temp_1 == 0:
-                    return k(0.0)
-                else:
-                    temp_2 = lambda_0(z)
-                    temp_3 = temp_2(k)
-                    k_of_z_prime = temp_3(data)
-                    temp_4 = LogSumExp(k_of_z_prime)
-                    temp_5 = temp_4(False)
-                    temp_6 = temp_5(True)
-                    temp_7 = lambda_1(z)
-                    temp_8 = temp_7(data)
-                    return temp_6 + temp_8
-                
-            return f_of_data
-        return f_of_k
-    return f_of_z(_)
-
-@cache
-def lambda_0(_):
-    @cache
-    def f_of_z(z):
-        @cache
-        def f_of_k(k):
-            @cache
-            def f_of_data(data):
-                @cache
-                def f_of_z_prime(z_prime):
-                    temp_9 = bias(z)
-                    temp_10 = hmm_mixed(k)
-                    temp_11 = temp_10(z_prime)
-                    temp_12 = tail(data)
-                    temp_13 = temp_11(temp_12)
-                    return dist.Bernoulli(temp_9).log_prob(torch.tensor(z_prime, dtype=torch.float)) \
-                           + temp_13
-                return f_of_z_prime
-            return f_of_data
-        return f_of_k
-    return f_of_z(_)
-
-@cache
-def lambda_1(_):
-    @cache
-    def f_of_z(z):
-        @cache
-        def f_of_data(data):
-            global args, hmm
-            if args.config == "MAPPL-SI":
-                return hmm.transformed_p_exact(z, data[0])
-            else:
-                raise Exception("Wrong config")
-        return f_of_data
-    return f_of_z(_)
+def logML_1(data, z):
+    global args, hmm
+    assert args.config == "MAPPL-SI"
+    return hmm.transformed_p_exact(z, data[0])
 
 def head(data):
     return torch.tensor(data[0], dtype=float)
@@ -176,20 +117,14 @@ class HMMaMixture:
     def transformed_p_exact(self, cur, x):
         return torch.log(beta_ME_exact_solution(alpha=self.alpha, beta=self.beta, x=x, cur=cur))
 
-    def transformed(*args):
-        f = hmm_mixed
-        for arg in args[1:]:
-            f = f(arg)
-        return f
-
     def model_evidence_IS(self):
         return model_evidence("importance", self.model, self.init, self.data, num_samples=self.num_samples)
 
     def model_evidence_MAPPLSI(self):
-        return model_evidence("transform", self.transformed, halt_transformed, self.init, self.data)
+        return model_evidence("transform", hmm_mixed, halt_transformed, self.init, self.data)
 
     def model_evidence_MAPPLIS(self):
-        return model_evidence("transform", self.transformed, halt_transformed, self.init, self.data)
+        return model_evidence("transform", hmm_mixed, halt_transformed, self.init, self.data)
 
     def one_trail(self, config, f):
         loginfo = "{:>10}, \t{:>10d}, \t{:>7d}, \t{:>12.5f}, \t{:>30.20f}, \t{:>+37.30e}, "

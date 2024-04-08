@@ -1,5 +1,5 @@
 def head(data):
-    return torch.tensor(data[0])
+    return data[0]
 
 def tail(data):
     return data[1:]
@@ -7,10 +7,8 @@ def tail(data):
 def halt_transformed(_b):
     return 0.0
 
-def mean(p):
-    def f(z):
-        return p+z
-    return f
+def mean(p, z):
+    return p+z
 
 def bias(z):
     global hmm
@@ -25,7 +23,7 @@ def beta(_):
 
 def sigma(dummy):
     global hmm
-    return torch.tensor(hmm.sigma)
+    return hmm.sigma
 
 def logML(f):
     global hmm
@@ -64,12 +62,6 @@ class HMM:
         elif self.num_samples_exponent is not None:
             return 2 ** self.num_samples_exponent
 
-    def transformed(*args):
-        f = hmm_mixed
-        for arg in args[1:]:
-            f = f(arg)
-        return f
-
     def transformed_p_WM(self, cur, x):
         # In[1]:=  Integrate[PDF[NormalDistribution[0+p,0.125], 0]PDF[BetaDistribution[1, 1],p], {p, 0, 1}]
         # Out[1]= 0.5
@@ -96,11 +88,11 @@ class HMM:
 
     def model_evidence_MAPPLIS(self):
         self.transformed_p = self.transformed_p_IS
-        return model_evidence("transform", self.transformed, halt_transformed, self.init, self.data)
+        return model_evidence("transform", hmm_mixed, halt_transformed, self.init, self.data)
 
     def model_evidence_MAPPLIS(self):
         self.transformed_p = self.transformed_p_WM
-        return model_evidence("transform", self.transformed, halt_transformed, self.init, self.data)
+        return model_evidence("transform", hmm_mixed, halt_transformed, self.init, self.data)
     
     def print_header(self):
         print(

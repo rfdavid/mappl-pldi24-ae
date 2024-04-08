@@ -1,0 +1,8 @@
+def coin(obs:bool) : Unit = { 
+    fair = sample(BERN(0.5)); 
+    if fair then 
+        observe obs from BERN(0.5) 
+    else 
+        observe obs from BERN(0.2) 
+    end
+}

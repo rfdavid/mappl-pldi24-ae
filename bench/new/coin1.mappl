@@ -1,0 +1,5 @@
+def twocoins() : Unit = {
+    x = sample(BERN(0.5));
+    y = sample(BERN(0.5));
+    observe (x = y) from BERN(1) 
+}
