@@ -1,6 +1,6 @@
 FROM nixos/nix
 
-RUN git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=docker
+RUN git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=newexamples
 WORKDIR /mappl-pldi24-ae
 RUN nix --extra-experimental-features  nix-command --extra-experimental-features flakes develop 
 
