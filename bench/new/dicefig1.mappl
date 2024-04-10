@@ -1,5 +1,10 @@
 external def safe_dec : nat -> nat
-
+(*
+def safe_dec(x):
+    if x - 1 < 0:
+        raise Exception("Negative length")
+    return x - 1
+*)
 def fig1(x: bool, depth: nat) : Unit = {
     if depth = 0
     then observe x from BERN(1)

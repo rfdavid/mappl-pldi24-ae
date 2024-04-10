@@ -7,7 +7,12 @@ i = i1 i2
 3   1  1
 *)
 external def safe_dec : nat -> nat
-
+(*
+def safe_dec(x):
+    if x - 1 < 0:
+        raise Exception("Negative length")
+    return x - 1
+*)
 def ladder(i1: bool, i2: bool, depth: nat) : nat[4] = {
     if depth = 0 then
         return (

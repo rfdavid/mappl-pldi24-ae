@@ -1,6 +1,10 @@
-external def random : Unit -> nat[26]
 external def safe_dec : nat -> nat
-
+(*
+def safe_dec(x):
+    if x - 1 < 0:
+        raise Exception("Negative length")
+    return x - 1
+*)
 def drawChar(key: nat, observation: nat, depth:nat) : Unit = {
     if depth = 0 then 
         return unit
