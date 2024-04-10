@@ -6,7 +6,7 @@ let rec const_propagation_exp exp =
   match exp.exp_desc with
   | E_let (e, id, body) ->
     (match e.exp_desc with
-     | E_var _ | E_triv ->
+     | E_var _ | E_triv | E_bool _ ->
        let s = String.Map.singleton id.txt e in
        let body' = subst_exp s body in
        const_propagation_exp body'
@@ -25,7 +25,9 @@ let rec const_propagation_exp exp =
   | E_app (lhs, rhs) ->
     mknoloc_exp @@ E_app (const_propagation_exp lhs, const_propagation_exp rhs)
   | E_logML m -> mknoloc_exp @@ E_logML (const_propagation_cmd m)
-  | _ -> exp
+  | _ ->
+    (* Format.printf "stops here %a@\n" print_exp exp; *)
+    exp
 
 and const_propagation_trm trm =
   match trm.trm_desc with

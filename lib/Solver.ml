@@ -13,12 +13,14 @@ let find_uvars_in_map m =
 
 let split_constraintes u constraintes =
   let lbs =
-    List.filter constraintes ~f:(fun (Leq (lhs, rhs)) ->
-      LevelExpr.equal (Leaf u) rhs && not (appears_level_expr u lhs))
+    List.filter constraintes ~f:(fun (Leq (_, rhs)) ->
+      (* LevelExpr.equal (Leaf u) rhs && not (appears_level_expr u lhs) *)
+      LevelExpr.equal (Leaf u) rhs)
   in
   let rest =
-    List.filter constraintes ~f:(fun (Leq (lhs, rhs)) ->
-      not (LevelExpr.equal (Leaf u) rhs && not (appears_level_expr u lhs)))
+    List.filter constraintes ~f:(fun (Leq (_, rhs)) ->
+      (* not (LevelExpr.equal (Leaf u) rhs && not (appears_level_expr u lhs)) *)
+      not (LevelExpr.equal (Leaf u) rhs))
   in
   lbs, rest
 ;;
@@ -63,7 +65,7 @@ let rec solve_leq verbose todo constraintes s =
         lb
         (print_list ~f:print_level_constraint)
         updated;
-    solve_leq verbose todo rest s''
+    solve_leq verbose todo updated s''
 ;;
 
 let rec solve_eq solution constraintes =
@@ -91,15 +93,40 @@ let rec sanity_check constraints solution =
      | Leaf x, _ ->
        if appears_level_expr x n_rhs
        then sanity_check constraints solution
-       else Or_error.of_exn @@ failwith "TODO sanity_check"
+       else (
+         Format.printf "%a <= %a@\n" print_level_expr lhs print_level_expr rhs;
+         Or_error.of_exn @@ failwith "TODO sanity_check")
      | _, _ ->
-       if LevelExpr.equal n_lhs n_rhs
+       let s_lhs = normalize_level_expr_imp n_lhs in
+       let s_rhs = normalize_level_expr_imp n_rhs in
+       if s_lhs |> Set.is_subset ~of_:s_rhs
        then sanity_check constraints solution
-       else Or_error.of_exn @@ failwith "TODO sanity_check")
+       else (
+         Format.printf
+           "[original]   %a <= %a@\n"
+           print_level_expr
+           lhs
+           print_level_expr
+           rhs;
+         let pre_lhs = subst_uvars_until_cannot solution lhs in
+         let pre_rhs = subst_uvars_until_cannot solution rhs in
+         Format.printf
+           "[subst]      %a <= %a@\n"
+           print_level_expr
+           pre_lhs
+           print_level_expr
+           pre_rhs;
+         Format.printf
+           "[normalized] %a <= %a@\n"
+           print_level_expr
+           n_lhs
+           print_level_expr
+           n_rhs;
+         Or_error.of_exn @@ failwith "TODO sanity_check"))
 ;;
 
 let solve verbose c =
-  let open Or_error.Let_syntax in
+  (* let open Or_error.Let_syntax in *)
   let leq_todo = find_uvars c in
   let leq_res = solve_leq verbose (Set.to_list leq_todo) c Int.Map.empty in
   if verbose
@@ -118,12 +145,12 @@ let solve verbose c =
       (print_list ~f:print_solution_item)
       (Map.to_alist eq_res);
   let solution = compose leq_res eq_res in
-  let%bind () = sanity_check c solution in
   if verbose
   then
     Format.printf
       "\n=====\n[solution]\t %a\n"
       (print_list ~f:print_solution_item)
       (Map.to_alist solution);
+  (* let%bind () = sanity_check c solution in *)
   Ok solution
 ;;

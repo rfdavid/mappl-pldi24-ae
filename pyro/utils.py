@@ -12,15 +12,22 @@ sys.setrecursionlimit(32767)
 TensorIntBool = torch.tensor([0, 1], dtype=torch.int)
 max_tries=2**256
 
-def LogSumExp(f):
-    def lower(lo):
-        def upper(hi):
-            int_lo = int(lo)
-            int_hi = int(hi)
-            log_probs = torch.tensor([f(z) for z in range(int_lo, int_hi+1)])
-            return torch.logsumexp(log_probs, dim=-1)
-        return upper
-    return lower
+@cache
+def cached_partial(func, *args):
+    return partial(func, *args)
+
+@cache
+def auto_invoke_partial(func, *args, **kwargs):
+    if not args and not kwargs: 
+        return func()  
+    else:
+        return partial(func, *args, **kwargs) 
+
+def LogSumExp(f, lo, hi):
+    int_lo = int(lo)
+    int_hi = int(hi)
+    log_probs = torch.tensor([f(z) for z in range(int_lo, int_hi+1)])
+    return torch.logsumexp(log_probs, dim=-1)
     
 def target(f, *args, num_samples=None):
     if num_samples is None:

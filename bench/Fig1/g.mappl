@@ -7,7 +7,7 @@ external def tail : external_list -> external_list
 external def mean : real -> bool -> nat 
 external def bias : bool -> ureal 
 
-def hmm_mixed(z : bool, data: external_list) : Unit =
+def hmm_mixed(z : bool, data: external_list) : Unit = {
   if (len data) = 0 
     then return unit 
     else
@@ -16,3 +16,4 @@ def hmm_mixed(z : bool, data: external_list) : Unit =
       z' = sample(BERN(bias z));
       hmm_mixed(z', tail(data))
     end
+}

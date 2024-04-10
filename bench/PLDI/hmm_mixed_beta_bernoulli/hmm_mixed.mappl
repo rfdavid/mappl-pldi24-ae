@@ -12,7 +12,7 @@ external def beta  : Unit -> nat
 external def to_nat : bool -> nat
 external def safe_sub : nat -> nat -> nat
 
-def hmm_mixed(z : bool, data: external_list) : Unit =
+def hmm_mixed(z : bool, data: external_list) : Unit = {
   if (len data) = 0 
     then return unit 
     else
@@ -21,3 +21,4 @@ def hmm_mixed(z : bool, data: external_list) : Unit =
       z' = sample(BERN(bias z));
       hmm_mixed(z', tail(data))
     end
+}      

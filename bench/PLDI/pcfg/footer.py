@@ -4,15 +4,11 @@ def head(data):
 def tail(data):
     return data[1:]
 
-def prefix(lst):
-    def _get(x):
-        return lst[:x]
-    return _get
+def prefix(lst, index):
+    return lst[:index]
 
-def suffix(lst):
-    def _get(x):
-        return lst[x:]
-    return _get
+def suffix(lst, index):
+    return lst[index:]
 
 def safe_dec(x):
     if x - 1 < 0:
@@ -32,7 +28,7 @@ class PCFG:
         return torch.zeros(1) if len(u) == 0 else -torch.inf 
 
     def model_evidence_MAPPL(self):
-        return model_evidence("transform", pcfg(halt_transformed), self.data)
+        return model_evidence("transform", pcfg, halt_transformed, self.data)
 
     def print_header(self):
         print(

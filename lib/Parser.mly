@@ -40,11 +40,11 @@ let mkcmd ~loc cmd_desc = {
 %token FST SND
 %token INL INR CASE OF BAR RightArrow
 
-%token NAT REAL PREAL UREAL
+%token INT NAT REAL PREAL UREAL
 
 %token EXTERNAL TYPE DEF
 
-%token BERN BETA BIN CAT GAMMA GEO NORMAL POIS UNIF
+%token BERN BETA BIN CAT GAMMA GEO NORMAL POIS UNIF EXP
 
 %token INF LOGPR AT LOGML
 
@@ -72,6 +72,7 @@ let mkcmd ~loc cmd_desc = {
 %token SEMI
 %token SLASH
 %token COMMA
+%token ATSIGN
 
 %token <float> FLOATV
 %token <int> INTV
@@ -114,9 +115,11 @@ let mkcmd ~loc cmd_desc = {
 toplevel:
   | TYPE; ty_name = mkloc(IDENT); EQUAL; ty = base_ty; 
     { Top_type (ty_name, ty) }
+  | DEF; fun_name = mkloc(IDENT); func_sig = proc_sig; EQUAL; func_body = exp; 
+    { Top_func (fun_name, { func_sig; func_body; func_loc = make_loc $sloc }) }
   | DEF; pure_name = mkloc(IDENT); COLON; bty = base_ty; EQUAL; pure_body = exp; 
     { Top_pure (pure_name, bty, pure_body) }
-  | DEF; proc_name = mkloc(IDENT); proc_sig = proc_sig; EQUAL; proc_body = cmd; 
+  | DEF; proc_name = mkloc(IDENT); proc_sig = proc_sig; EQUAL; LBRACE; proc_body = cmd; RBRACE;
     { Top_proc (proc_name, { proc_sig; proc_body; proc_loc = make_loc $sloc }) }
   | EXTERNAL; TYPE; ty_name = mkloc(IDENT); 
     { Top_external_type (ty_name) }
@@ -179,6 +182,8 @@ prim_ty:
     { Pty_fnat n }
   | NAT
     { Pty_nat }
+  | INT
+    { Pty_int}
 
 exp:
   | mkexp(
@@ -244,6 +249,8 @@ app_exp:
       { E_app (rator, rand) }
       | rator = prim_exp; rand = prim_exp
       { E_app (rator, rand) }
+      | func_name = mkloc(IDENT); ATSIGN; LPAREN; args = separated_list(COMMA, exp); RPAREN
+      { E_call (func_name, args) }
       | FST; LPAREN; rand = prim_exp; RPAREN
       { E_inl (rand) }
       | SND; LPAREN; rand = prim_exp; RPAREN
@@ -279,6 +286,8 @@ prim_exp:
     { E_logPr (dist_exp, val_exp)}
     | LOGML; LPAREN; cmd = cmd; RPAREN
     { E_logML (cmd)}
+    | LBRACKET; array = separated_list(COMMA, exp); RBRACKET;
+    { E_array (array) }
     )
     { $1 }
 
@@ -289,12 +298,14 @@ dist(RHS):
     { D_unif }
   | BETA; LPAREN; arg1 = RHS; COMMA; arg2 = RHS; RPAREN
     { D_beta (arg1, arg2) }
+  | EXP; LPAREN; arg1 = RHS; RPAREN
+    { D_exp (arg1) }
   | GAMMA; LPAREN; arg1 = RHS; COMMA; arg2 = RHS; RPAREN
     { D_gamma (arg1, arg2) }
   | NORMAL; LPAREN; arg1 = RHS; COMMA; arg2 = RHS; RPAREN
     { D_normal (arg1, arg2) }
-  | CAT; LPAREN; args = separated_nonempty_list(COMMA, RHS); RPAREN
-    { D_cat args }
+  | CAT; LPAREN; logits=exp; RPAREN
+    { D_cat (logits) }
   | BIN; LPAREN; n = INTV; COMMA; arg = RHS; RPAREN
     { D_bin (n, arg) }
   | GEO; LPAREN; arg = RHS; RPAREN

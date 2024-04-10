@@ -54,9 +54,14 @@ let parse_file ?(log_time = false) filename =
       In_channel.with_file filename ~f:parse_channel)
 ;;
 
-let type_check ?(log_time = false) verbose prog =
+let info_type_check ?(log_time = false) verbose prog =
   MAPPL.Timer.wrap_duration ~log_time "typechecking" (fun () ->
     MAPPL.InformationTyping.tycheck_prog verbose prog)
+;;
+
+let plain_type_check ?(log_time = false) verbose prog =
+  MAPPL.Timer.wrap_duration ~log_time "typechecking" (fun () ->
+    MAPPL.Typing.tycheck_prog verbose prog)
 ;;
 
 let var_elim ?(log_time = false) verbose prog =
@@ -68,13 +73,35 @@ let cmd_only_parse =
   Command.basic
     ~summary:"only parse"
     (let open Command.Let_syntax in
-     let%map_open filename = anon ("filename" %: Filename_unix.arg_type) in
+     let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
+     and ast = flag "-ast" no_arg ~doc:"dump ast"
+     and print = flag "-print" no_arg ~doc:"pretty print" in
      fun () ->
        let result =
          let open Or_error.Let_syntax in
          let%bind prog = parse_file filename in
-         Format.printf "%a@." MAPPL.AbstractSyntaxTree.print_prog prog;
+         if ast then Format.printf "%s\n" (MAPPL.AbstractSyntaxTree.show_prog prog);
+         if print then Format.printf "%a@\n" MAPPL.AbstractSyntaxTree.print_prog prog;
          Ok prog
+       in
+       report_result result)
+;;
+
+let cmd_info_check =
+  Command.basic
+    ~summary:"info check"
+    (let open Command.Let_syntax in
+     let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
+     and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug"
+     and level_count = flag "-u" no_arg ~doc:"print number of unification variables" in
+     fun () ->
+       let result =
+         let open Or_error.Let_syntax in
+         let%bind prog = parse_file filename in
+         let%bind result = info_type_check verbose prog in
+         if level_count
+         then Format.printf "Unification variables@.%d@." !MAPPL.Level.level_variable;
+         Ok result
        in
        report_result result)
 ;;
@@ -83,13 +110,14 @@ let cmd_type_check =
   Command.basic
     ~summary:"type check"
     (let open Command.Let_syntax in
-     let%map_open filename = anon ("filename" %: Filename_unix.arg_type) in
+     let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
+     and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug" in
      fun () ->
        let result =
          let open Or_error.Let_syntax in
          let%bind prog = parse_file filename in
-         let%bind _ = type_check true prog in
-         Ok prog
+         let%bind result = plain_type_check verbose prog in
+         Ok result
        in
        report_result result)
 ;;
@@ -102,6 +130,7 @@ let cmd_var_elim =
      and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug"
      and hoist = flag "-hoist" no_arg ~doc:"apply lambda hoisting when it is on"
      and log_time = flag "-time" no_arg ~doc:"count running time when it is on"
+     and level_count = flag "-u" no_arg ~doc:"print number of unification variables"
      and output = flag "-output" (optional Filename_unix.arg_type) ~doc:" output file" in
      fun () ->
        let result =
@@ -111,11 +140,12 @@ let cmd_var_elim =
          if verbose
          then
            Format.printf "[cmd_var_elim]@.%a@." MAPPL.AbstractSyntaxTree.print_prog elimed;
-         let optimized =
+         let%bind optimized =
            elimed
            |> MAPPL.ConstantPropagation.const_propagation_prog
            |> MAPPL.EtaConversion.eta_conversion_prog
            |> MAPPL.ConstantPropagation.const_propagation_prog
+           |> MAPPL.PuretoFunc.pure_to_func
          in
          if verbose
          then
@@ -123,19 +153,62 @@ let cmd_var_elim =
          let%bind prog =
            if hoist
            then (
+             (* let%bind prehoisted = MAPPL.PuretoFunc.pure_to_func optimized in *)
+             (* Format.printf "[prehoisted]@\n%a@\n" MAPPL.AbstractSyntaxTree.print_prog prehoisted; *)
+             (* Format.print_flush (); *)
              let%bind hoisted = MAPPL.Hoisting.hoist optimized in
              Ok hoisted)
            else Ok optimized
          in
+         if level_count
+         then Format.printf "Unification variables@.%d@." !MAPPL.Level.level_variable
+         else (
+           match output with
+           | Some output ->
+             Out_channel.with_file output ~f:(fun ch ->
+               let fmt = Format.formatter_of_out_channel ch in
+               Format.fprintf fmt "%a@\n" MAPPL.AbstractSyntaxTree.print_prog prog;
+               Format.pp_print_flush fmt ())
+           | None -> Format.printf "%a@\n" MAPPL.AbstractSyntaxTree.print_prog prog);
+         Ok prog
+       in
+       report_result result)
+;;
+
+let cmd_rust =
+  Command.basic
+    ~summary:"rust generation from mappl source"
+    (let open Command.Let_syntax in
+     let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
+     and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug"
+     and log_time = flag "-time" no_arg ~doc:"count running time when it is on"
+     and output = flag "-output" (optional Filename_unix.arg_type) ~doc:" output file" in
+     fun () ->
+       let result =
+         let open Or_error.Let_syntax in
+         let%bind parsed = parse_file ~log_time filename in
+         let%bind elimed = var_elim ~log_time verbose parsed in
          if verbose
-         then Format.printf "[hoisted]@.%a@." MAPPL.AbstractSyntaxTree.print_prog prog;
+         then
+           Format.printf "[cmd_var_elim]@.%a@." MAPPL.AbstractSyntaxTree.print_prog elimed;
+         let%bind optimized =
+           elimed
+           |> MAPPL.ConstantPropagation.const_propagation_prog
+           |> MAPPL.EtaConversion.eta_conversion_prog
+           |> MAPPL.ConstantPropagation.const_propagation_prog
+           |> MAPPL.PuretoFunc.pure_to_func
+         in
+         if verbose
+         then
+           Format.printf "[optimized]@.%a@." MAPPL.AbstractSyntaxTree.print_prog optimized;
+         let%bind prog = MAPPL.Hoisting.hoist optimized in
          (match output with
           | Some output ->
             Out_channel.with_file output ~f:(fun ch ->
               let fmt = Format.formatter_of_out_channel ch in
-              Format.fprintf fmt "%a@\n" MAPPL.AbstractSyntaxTree.print_prog prog;
+              Format.fprintf fmt "%a@." MAPPL.RustGeneration.dump_rust prog;
               Format.pp_print_flush fmt ())
-          | None -> Format.printf "%a@\n" MAPPL.AbstractSyntaxTree.print_prog prog);
+          | None -> Format.printf "%a@." MAPPL.RustGeneration.dump_rust prog);
          Ok prog
        in
        report_result result)
@@ -143,7 +216,7 @@ let cmd_var_elim =
 
 let cmd_dump_rust =
   Command.basic
-    ~summary:"rust code generation"
+    ~summary:"rust code generation from hoisted input"
     (let open Command.Let_syntax in
      let%map_open filename = anon ("filename" %: Filename_unix.arg_type) in
      fun () ->
@@ -151,6 +224,46 @@ let cmd_dump_rust =
          let open Or_error.Let_syntax in
          let%bind prog = parse_file filename in
          Format.printf "[cmd_dump_rust]@.%a" MAPPL.RustGeneration.dump_rust prog;
+         Ok prog
+       in
+       report_result result)
+;;
+
+let cmd_pyro =
+  Command.basic
+    ~summary:"pyro generation from mappl source"
+    (let open Command.Let_syntax in
+     let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
+     and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug"
+     and log_time = flag "-time" no_arg ~doc:"count running time when it is on"
+     and output = flag "-output" (optional Filename_unix.arg_type) ~doc:" output file" in
+     fun () ->
+       let result =
+         let open Or_error.Let_syntax in
+         let%bind parsed = parse_file ~log_time filename in
+         let%bind elimed = var_elim ~log_time verbose parsed in
+         if verbose
+         then
+           Format.printf "[cmd_var_elim]@.%a@." MAPPL.AbstractSyntaxTree.print_prog elimed;
+         let%bind optimized =
+           elimed
+           |> MAPPL.ConstantPropagation.const_propagation_prog
+           |> MAPPL.EtaConversion.eta_conversion_prog
+           |> MAPPL.ConstantPropagation.const_propagation_prog
+           |> MAPPL.PuretoFunc.pure_to_func
+         in
+         if verbose
+         then
+           Format.printf "[optimized]@.%a@." MAPPL.AbstractSyntaxTree.print_prog optimized;
+         let%bind prog = MAPPL.Hoisting.hoist optimized in
+         let anf_prog = MAPPL.ANF.normalize_prog prog in
+         (match output with
+          | Some output ->
+            Out_channel.with_file output ~f:(fun ch ->
+              let fmt = Format.formatter_of_out_channel ch in
+              Format.fprintf fmt "%a@." MAPPL.PyroGeneration.dump_pyro anf_prog;
+              Format.pp_print_flush fmt ())
+          | None -> Format.printf "%a@." MAPPL.PyroGeneration.dump_pyro anf_prog);
          Ok prog
        in
        report_result result)
@@ -189,7 +302,8 @@ let cmd_hoist =
        let result =
          let open Or_error.Let_syntax in
          let%bind prog = parse_file filename in
-         let%bind hoisted = MAPPL.Hoisting.hoist prog in
+         let%bind prehoisted = MAPPL.PuretoFunc.pure_to_func prog in
+         let%bind hoisted = MAPPL.Hoisting.hoist prehoisted in
          (match output with
           | Some output ->
             Out_channel.with_file output ~f:(fun ch ->
@@ -207,8 +321,11 @@ let cmd_route =
     ~summary:"mappl compiler"
     [ "only-parse", cmd_only_parse
     ; "type-check", cmd_type_check
+    ; "info-check", cmd_info_check
     ; "dump-rust", cmd_dump_rust
+    ; "rust", cmd_rust
     ; "dump-pyro", cmd_dump_pyro
+    ; "pyro", cmd_pyro
     ; "var-elim", cmd_var_elim
     ; "hoist", cmd_hoist
     ]

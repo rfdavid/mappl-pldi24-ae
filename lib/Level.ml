@@ -96,7 +96,21 @@ let rec subst_vars_only s = function
   | Leaf (LV_var i) -> Map.find_exn s i
   | Leaf l -> Leaf l
   | Join (lhs, rhs) -> Join (subst_vars_only s lhs, subst_vars_only s rhs)
-  | Subst _ -> failwith "subst_vars_only"
+  | Subst (e, s) ->
+    let s' =
+      List.map s ~f:(fun (key, data) ->
+        key, subst_vars_only (Int.Map.of_alist_exn s) data)
+    in
+    Subst (e, s')
+;;
+
+(* | Subst _ -> failwith "subst_vars_only" *)
+
+let rec try_subst_vars_only s = function
+  | Leaf (LV_var i) as leaf -> Map.find s i |> Option.value ~default:leaf
+  | Leaf l -> Leaf l
+  | Join (lhs, rhs) -> Join (try_subst_vars_only s lhs, try_subst_vars_only s rhs)
+  | Subst _ -> failwith "try_subst_vars_only"
 ;;
 
 let rec subst_uvars_only s = function
@@ -124,20 +138,30 @@ let rec normalize_level_expr_imp = function
     else Set.filter merged ~f:(Fn.compose not is_L)
     (* Might returns empty set *)
   | Subst (e, s) ->
-    let e = Option.value_exn (set_to_level_expr @@ normalize_level_expr_imp e) in
-    if is_const e
-    then LevelExprSet.singleton e
-    else (
-      let s =
-        List.filter_map s ~f:(fun (i, exp) ->
-          let%bind e = set_to_level_expr @@ normalize_level_expr_imp exp in
-          Some (i, e))
-      in
-      if Set.is_empty (uvars_of_level_expr e)
-      then (
-        let s = Int.Map.of_alist_exn s in
-        normalize_level_expr_imp @@ subst_uvars_only s e)
-      else LevelExprSet.singleton (Subst (e, s)))
+    let norm =
+      set_to_level_expr @@ normalize_level_expr_imp e
+      |> Option.map ~f:(fun e ->
+        if is_const e
+        then LevelExprSet.singleton e
+        else (
+          let s =
+            List.filter_map s ~f:(fun (i, exp) ->
+              let%bind e = set_to_level_expr @@ normalize_level_expr_imp exp in
+              Some (i, e))
+          in
+          (* if Set.is_empty (uvars_of_level_expr e)
+             then ( *)
+          let s = Int.Map.of_alist_exn s in
+          (* let e' = subst_uvars_only s e in *)
+          let e'' = try_subst_vars_only s e in
+          let e''' = normalize_level_expr_imp @@ e'' in
+          e'''
+          (* else LevelExprSet.singleton (Subst (e, s))) *)))
+      |> Option.value ~default:LevelExprSet.empty
+    in
+    (* let l_norm = set_to_level_expr norm |> Option.value ~default:(Leaf (LV_const L)) in *)
+    (* Format.printf "[normalize_level_expr_imp][after] %a@\n" print_level_expr l_norm; *)
+    norm
 ;;
 
 let normalize_level_expr e =
@@ -155,7 +179,7 @@ let rec update_uvars_only s = function
   | Leaf (LV_var i) -> Leaf (LV_var i)
   | Leaf (LV_uvar i) -> Subst (Leaf (LV_uvar i), s)
   | Join (lhs, rhs) -> Join (update_uvars_only s lhs, update_uvars_only s rhs)
-  | Subst _ -> failwith "TODO"
+  | Subst _ -> failwith "[update_uvars_only] TODO"
 ;;
 
 let rec list_to_level_expr l =
@@ -193,7 +217,8 @@ let reset_level_variable () = level_variable := 0
 
 let gen_new_level_var_index () =
   let c = !level_variable in
-  if c > 100 then failwith "[gen_new_level_var] too many vars";
+  (* Increased for compilation time benchmarks *)
+  if c > 100000 then failwith "[gen_new_level_var] too many vars";
   incr level_variable;
   c
 ;;

@@ -12,7 +12,7 @@ external def safe_dec : nat -> nat
   S -> 0
 *)
 
-def pcfg(words : external_list) : Unit =
+def pcfg(words : external_list) : Unit = {
   z = sample(BERN(0.5));
   if z then (* S -> 0 *)
     if len(words) = 1 and head(words) = 0 then 
@@ -31,4 +31,4 @@ def pcfg(words : external_list) : Unit =
       pcfg((suffix words) sp)
     end
   end
-  
+}
