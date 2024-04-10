@@ -3,7 +3,7 @@
 
 The docker image is directly extracted from the earlier submission using Nix.
 Only necessity and utility commands needed by the docker image, e.g., the Dockerfile, gunmake, and nano, etc., are added to the artifact repo as the docker branch. For info on 
-https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/compare/main...docker
+https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/compare/v0.1-alpha...v0.1-beta
 
 # To use the docker image downloaded from Google Drive
 
@@ -61,48 +61,6 @@ https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/compare/main...docker
 
     To see what parameters were used:
     ```diff
-    root@39f9b7ed8b03 /m/b/PLDI (docker)# git diff
-
-    diff --git a/bench/PLDI/hmm/Makefile b/bench/PLDI/hmm/Makefile
-    index f2acfd4..d3ea233 100644
-    --- a/bench/PLDI/hmm/Makefile
-    +++ b/bench/PLDI/hmm/Makefile
-    @@ -15,7 +15,7 @@ bench.mappl: bench.enum.sh hmm.mappl.py
-            sh bench.mappl.sh 0.3 0.3 0.7 $(mappl_len)
-    
-    bench.perpl: bench.perpl.sh
-    -       sh bench.perpl.sh $(mappl_len)
-    +       sh bench.perpl.sh 16
-    
-    bench.plot:
-            python3 plot.py \
-    diff --git a/bench/PLDI/hmm2/Makefile b/bench/PLDI/hmm2/Makefile
-    index 9ac9699..7e1f8dc 100644
-    --- a/bench/PLDI/hmm2/Makefile
-    +++ b/bench/PLDI/hmm2/Makefile
-    @@ -15,7 +15,7 @@ bench.mappl: bench.enum.sh hmm2.mappl.py
-            sh bench.mappl.sh 0.3 0.3 0.7 $(mappl_len)
-    
-    bench.perpl: bench.perpl.sh
-    -       sh bench.perpl.sh $(mappl_len)
-    +       sh bench.perpl.sh 16
-    
-    bench.plot: 
-            python3 plot.py \
-    diff --git a/bench/PLDI/hmm_mixed_beta_bernoulli/Makefile b/bench/PLDI/hmm_mixed_beta_bernoulli/Makefile
-    index 4ae339b..b924e74 100644
-    --- a/bench/PLDI/hmm_mixed_beta_bernoulli/Makefile
-    +++ b/bench/PLDI/hmm_mixed_beta_bernoulli/Makefile
-    @@ -1,4 +1,4 @@
-    -exponent = 15
-    +exponent = 12
-    alpha = 1
-    beta = 1
-    theta_0 = 0.3
-    diff --git a/bench/PLDI/hmm_mixed_beta_normal/Makefile b/bench/PLDI/hmm_mixed_beta_normal/Makefile
-    index d7b74d6..3f7afa1 100644
-    --- a/bench/PLDI/hmm_mixed_beta_normal/Makefile
-    +++ b/bench/PLDI/hmm_mixed_beta_normal/Makefile
     root@39f9b7ed8b03 /m/b/PLDI (docker)# git diff --color > diff.txt
     root@39f9b7ed8b03 /m/b/PLDI (docker)# cat diff.txt 
     diff --git a/bench/PLDI/hmm/Makefile b/bench/PLDI/hmm/Makefile
@@ -280,14 +238,15 @@ https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/compare/main...docker
 # To use the docker image from a Dockerfile.
 
 0. You get the docker file by either 
-    - `git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=docker`,
+    - `git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=v0.1-beta`,
     - copy and paste from https://github.com/mappl-pldi24-ae/mappl-pldi24-ae/blob/docker/Dockerfile, or 
     - copy and paste from here
 
         ```docker
         FROM nixos/nix
 
-        RUN git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=newexamples
+        RUN git clone https://github.com/mappl-pldi24-ae/mappl-pldi24-ae --branch=v0.1-gamma
+        
         WORKDIR /mappl-pldi24-ae
         RUN nix --extra-experimental-features  nix-command --extra-experimental-features flakes develop 
 
