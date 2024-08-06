@@ -231,7 +231,7 @@ let cmd_dump_rust =
 
 let cmd_pyro =
   Command.basic
-    ~summary:"pyro generation from mappl source"
+    ~summary:"show generating function from mappl source"
     (let open Command.Let_syntax in
      let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
      and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug"
@@ -264,6 +264,46 @@ let cmd_pyro =
               Format.fprintf fmt "%a@." MAPPL.PyroGeneration.dump_pyro anf_prog;
               Format.pp_print_flush fmt ())
           | None -> Format.printf "%a@." MAPPL.PyroGeneration.dump_pyro anf_prog);
+         Ok prog
+       in
+       report_result result)
+;;
+
+let cmd_gf =
+  Command.basic
+    ~summary:"pyro generation from mappl source"
+    (let open Command.Let_syntax in
+     let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
+     and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug"
+     and log_time = flag "-time" no_arg ~doc:"count running time when it is on"
+     and output = flag "-output" (optional Filename_unix.arg_type) ~doc:" output file" in
+     fun () ->
+       let result =
+         let open Or_error.Let_syntax in
+         let%bind parsed = parse_file ~log_time filename in
+         let%bind elimed = var_elim ~log_time verbose parsed in
+         if verbose
+         then
+           Format.printf "[cmd_var_elim]@.%a@." MAPPL.AbstractSyntaxTree.print_prog elimed;
+         let%bind optimized =
+           elimed
+           |> MAPPL.ConstantPropagation.const_propagation_prog
+           |> MAPPL.EtaConversion.eta_conversion_prog
+           |> MAPPL.ConstantPropagation.const_propagation_prog
+           |> MAPPL.PuretoFunc.pure_to_func
+         in
+         if verbose
+         then
+           Format.printf "[optimized]@.%a@." MAPPL.AbstractSyntaxTree.print_prog optimized;
+         let%bind prog = MAPPL.Hoisting.hoist optimized in
+         let anf_prog = MAPPL.ANF.normalize_prog prog in
+         (match output with
+          | Some output ->
+            Out_channel.with_file output ~f:(fun ch ->
+              let fmt = Format.formatter_of_out_channel ch in
+              Format.fprintf fmt "%a@." MAPPL.GeneratingFunction.dump_pyro anf_prog;
+              Format.pp_print_flush fmt ())
+          | None -> Format.printf "%a@." MAPPL.GeneratingFunction.dump_pyro anf_prog);
          Ok prog
        in
        report_result result)
@@ -326,6 +366,7 @@ let cmd_route =
     ; "rust", cmd_rust
     ; "dump-pyro", cmd_dump_pyro
     ; "pyro", cmd_pyro
+    ; "gf", cmd_gf
     ; "var-elim", cmd_var_elim
     ; "hoist", cmd_hoist
     ]
