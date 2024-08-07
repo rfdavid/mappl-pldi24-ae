@@ -12,12 +12,12 @@ let header =
   "Generating Function\n"
 ;;
 
+let gf_expression : string ref = ref ""
 
-(* Decide if a top-level should be memoized or not, inner lambdas
-   always are so they don't need to invoke this function *)
-let memoize_decider func_name =
-  if String.is_prefix ~prefix:"lambda" func_name then "@cache\n" else ""
-;;
+let mult_gf value =
+  gf_expression := !gf_expression ^ " * " ^ value
+
+let print_gf () = print_endline !gf_expression
 
 (* Hacky string replacement for legal identifiers *)
 let primer varname =
@@ -65,8 +65,7 @@ let dump_binop binop =
 
 let extract_real_value = function
   | AE_real r -> r
-  | AE_triv -> 0.0
-  | _ -> failwith "Expected AE_real but got another type"
+  | _ -> 0.0
 
 (* --- 
 
@@ -82,12 +81,23 @@ let rec dump_atomic fmt = function
   | AE_inf -> Format.fprintf fmt "float('inf')"
   | AE_ninf -> Format.fprintf fmt "float('-inf')"
   | AE_binop (bop, lhs, rhs) ->
+    print_endline ("[*] AE_binop: ");
+
+    (* Debugging purposes *)
+    let lhs_desc = match rhs with
+        | AE_var v -> "Variable: " ^ v
+        | AE_real r -> "Real number: " ^ string_of_float r
+        | AE_bool b -> "Boolean: " ^ string_of_bool b
+        | _ -> "Other type"
+    in
+    print_endline ("[*] AE_binop, lhs is " ^ lhs_desc);
+    print_endline ("[*] AE_binop" ^ dump_binop bop);
+
     Format.fprintf
       fmt
       "@[<hv>@[%a@]%t@[%s %a@]@]"
       dump_atomic
       lhs
-      (* Python is a fake language and needs backslashes for line breaks *)
       (Format.pp_print_custom_break ~fits:("", 0, " ") ~breaks:(" \\", 0, ""))
       (dump_binop bop)
       dump_atomic
@@ -97,9 +107,9 @@ let rec dump_atomic fmt = function
       dump_dist fmt d
   | AE_pair (exp1, exp2) -> Format.fprintf fmt "%a, %a" dump_atomic exp1 dump_atomic exp2
   | AE_logPr (dist, v) ->
-      print_endline ("[*] AE_logPr");
+    print_endline ("[*] AE_logPr");
     Format.fprintf fmt
-      "%a => [%a]"
+      " --- %a => [%a] --- "
       dump_atomic dist
       dump_atomic v
   | AE_array lst -> Format.fprintf fmt "[%a]" (print_list ~f:dump_atomic) lst
@@ -108,8 +118,9 @@ let rec dump_atomic fmt = function
 and dump_dist fmt = function
   | D_ber e -> 
     let r = 1.0 -. extract_real_value e in
-    print_endline ("[*] AE_dist");
-    Format.fprintf fmt "%ax + %f)" dump_atomic e r
+    let m = "(" ^ string_of_float(extract_real_value e) ^ "x) + " ^ string_of_float(r) in
+    mult_gf(m);
+    Format.fprintf fmt " *** %s *** " m
   | D_unif -> Format.fprintf fmt "dist.Uniform???"
   | D_beta (e1, e2) ->
     Format.fprintf fmt "dist.Beta(%a, %a)" dump_atomic e1 dump_atomic e2
@@ -139,65 +150,11 @@ let return_or_bind ?bind fmt =
 
    --- *)
 let rec dump_complex ?bind fmt = function
-  | CE_cond (cond, tbranch, fbranch) ->
-    Format.fprintf
-      fmt
-      "@[<hv>if %a:@\n%s@[%a@]@\nelse:@\n%s@[%a@]@\n@]"
-      dump_atomic
-      cond
-      indent
-      (dump_inter ?bind)
-      tbranch
-      indent
-      (dump_inter ?bind)
-      fbranch
-  | CE_app (rator, rand) ->
-    return_or_bind
-      ?bind
-      fmt
-      (fun fmt () -> Format.fprintf fmt "%a(%a)" dump_atomic rator dump_atomic rand)
-      ()
-  | CE_logML (iexp, _) ->
-    return_or_bind
-      ?bind
-      fmt
-      (fun fmt () ->
-        Format.fprintf
-          fmt
-          "logML(@\n%s@[def %s():@\n%s@[%a@]@]@;)@;"
-          indent
-          (genmodel ())
-          indent
-          (dump_inter ?bind)
-          iexp)
-      ()
   | CE_call (name, args) ->
+    print_endline ("[*] CE_call");
     return_or_bind ?bind fmt (fun fmt () -> emit_call fmt name args) ()
-  | CE_sample exp ->
-    return_or_bind
-      ?bind
-      fmt
-      (fun fmt () ->
-        Format.fprintf fmt "pyro.sample(%s, %a)" (gensample ()) dump_atomic exp)
-      ()
-  | CE_factor exp ->
-    return_or_bind
-      ?bind
-      fmt
-      (fun fmt () ->
-        Format.fprintf fmt "pyro.factor(%s, %a)" (genfactor ()) dump_atomic exp)
-      ()
-  | CE_observe (obs, dist) ->
-    return_or_bind
-      ?bind
-      fmt
-      (fun fmt () ->
-        Format.fprintf fmt "pyro.sample(%s, %a, obs=%a)" 
-        (gensample ()) 
-        dump_atomic dist
-        dump_atomic obs)
-      ()
-  | _ -> failwith "TODO: sample, observe, etc"
+  | _ -> failwith "TODO: branching, sample, observe, etc"
+
 
 (* Is the call a partial application of a hoisted lambda? *)
 and emit_call fmt func_id args =
@@ -216,50 +173,14 @@ and emit_call fmt func_id args =
   else Format.fprintf fmt "%s(%a)" func_name (print_list ~f:dump_atomic) args
 
 and dump_inter ?bind fmt = function
-  | IE_let (Second (CE_logML (iexp, var)), v, e) ->
-    print_endline ("       ||||||||||||||||||||||||");
-    Format.fprintf
-      fmt
-      "@[def %s():@\n%s@[%a@]@]@\n%s = logML(%s)@\n%a"
-      var
-      indent
-      (dump_inter ?bind)
-      iexp
-      v
-      var
-      (dump_inter ?bind)
-      e
   | IE_let (ev, v, e) ->
     print_endline ("[*] func_name: " ^ v);
     dump_either ~bind:(Some v) fmt ev;
     dump_inter ?bind fmt e
-  | IE_abs (arg_name, body) ->
-    print_endline ("       ||||||||||||||||||||||||");
-    let arg_name = primer arg_name in
-    let func_name = func_prefix arg_name in
-    Format.fprintf
-      fmt
-      (* Define a unary lambda and return it, unapplied *)
-      "@[@@cache@\ndef %s(@[%s@]):@\n%s@[%a@]@\nreturn %s@]"
-      func_name
-      arg_name
-      indent
-      (dump_inter ?bind)
-      body
-      func_name
-  | IE_tail (Second (CE_logML (iexp, var))) ->
-    print_endline ("        ***********************");
-    Format.fprintf
-      fmt
-      "@[def %s():@\n%s@[%a@]@]@\nreturn logML(%s)"
-      var
-      indent
-      (dump_inter ?bind)
-      iexp
-      var
+  | IE_abs (_, _) -> ()
   | IE_tail atoplex -> 
     print_endline ("[*] IE_tail");
-          dump_either ?bind fmt atoplex
+    dump_either ?bind fmt atoplex
 
 and dump_either ?bind fmt = function
   | First atom ->
@@ -269,7 +190,6 @@ and dump_either ?bind fmt = function
     print_endline ("[*] second");
     dump_complex ?bind fmt comp
 ;;
-
 
 (* This is a wrapper for dump_inter/complex/atomic which are the workhorses,
    this function only special cases the first lambda encountered *)
@@ -299,22 +219,13 @@ let emit_param fmt = function
 let emit_sig fmt sign = print_list ~f:emit_param fmt sign.psig_arg_tys
 
 let dump_top_level fmt = function
-  | ANF_pure (id, body) ->
-    Format.fprintf
-      fmt
-      "@[%sdef %s(%s):@\n%s@[%a@]@]@."
-      (memoize_decider id)
-      id
-      dummy_param
-      indent
-      dump_tree
-      body
+  | ANF_pure (_,_) -> ()
   | ANF_func (id, sign, body) ->
     (* call 3 times here *)
     Format.fprintf
       fmt
       "@[%sdef %s(%a):@\n%s@[%a@]@]@."
-      (memoize_decider id)
+      id
       id
       emit_sig
       sign
@@ -323,9 +234,6 @@ let dump_top_level fmt = function
       body
 ;;
 
-let dump_pyro fmt anf_prog =
-
+let calc_gf fmt anf_prog =
   Format.fprintf fmt "@[%s@.%a@]" header (Format.pp_print_list dump_top_level) anf_prog
 ;;
-
-(* TODO: only cache functions used in LogSumExp *)

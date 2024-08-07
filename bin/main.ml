@@ -301,9 +301,12 @@ let cmd_gf =
           | Some output ->
             Out_channel.with_file output ~f:(fun ch ->
               let fmt = Format.formatter_of_out_channel ch in
-              Format.fprintf fmt "%a@." MAPPL.GeneratingFunction.dump_pyro anf_prog;
+              Format.fprintf fmt "%a@." MAPPL.GeneratingFunction.calc_gf anf_prog;
+              MAPPL.GeneratingFunction.print_gf();
               Format.pp_print_flush fmt ())
-          | None -> Format.printf "%a@." MAPPL.GeneratingFunction.dump_pyro anf_prog);
+          | None -> 
+                  Format.printf "%a@." MAPPL.GeneratingFunction.calc_gf anf_prog);
+                  MAPPL.GeneratingFunction.print_gf();
          Ok prog
        in
        report_result result)
