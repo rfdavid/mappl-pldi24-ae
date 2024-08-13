@@ -231,7 +231,7 @@ let cmd_dump_rust =
 
 let cmd_pyro =
   Command.basic
-    ~summary:"show generating function from mappl source"
+    ~summary:"pyro generation from mappl source"
     (let open Command.Let_syntax in
      let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
      and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug"
@@ -271,7 +271,7 @@ let cmd_pyro =
 
 let cmd_gf =
   Command.basic
-    ~summary:"pyro generation from mappl source"
+    ~summary:"generating function from mappl source"
     (let open Command.Let_syntax in
      let%map_open filename = anon ("filename" %: Filename_unix.arg_type)
      and verbose = flag "-verbose" no_arg ~doc:"verbose logging for debug"

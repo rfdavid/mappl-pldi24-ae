@@ -14,8 +14,10 @@ let header =
 
 let gf_expression : string ref = ref ""
 
-let mult_gf value =
-  gf_expression := !gf_expression ^ " * " ^ value
+let mult_gf (value : string) : unit =
+  match !gf_expression with
+  | "" -> gf_expression := value
+  | _ -> gf_expression := !gf_expression ^ " * " ^ value
 
 let print_gf () = print_endline !gf_expression
 
@@ -67,6 +69,10 @@ let extract_real_value = function
   | AE_real r -> r
   | _ -> 0.0
 
+let extract_var_name_from_ae_var = function
+  | AE_var var_name -> primer var_name
+  | _ -> ""
+
 (* --- 
 
    DUMP ATOMIC 
@@ -80,32 +86,50 @@ let rec dump_atomic fmt = function
   | AE_nat n -> Format.fprintf fmt "%d" n
   | AE_inf -> Format.fprintf fmt "float('inf')"
   | AE_ninf -> Format.fprintf fmt "float('-inf')"
+  | AE_binop (Bop_eq, _, _) -> ()
   | AE_binop (bop, lhs, rhs) ->
     print_endline ("[*] AE_binop: ");
 
     (* Debugging purposes *)
-    let lhs_desc = match rhs with
+    let lhs_desc = match lhs with
+        | AE_var v -> "Variable: " ^ v
+        | AE_real r -> "Real number: " ^ string_of_float r
+        | AE_bool b -> "Boolean: " ^ string_of_bool b
+        | _ -> "Other type"
+    in
+    let rhs_desc = match rhs with
         | AE_var v -> "Variable: " ^ v
         | AE_real r -> "Real number: " ^ string_of_float r
         | AE_bool b -> "Boolean: " ^ string_of_bool b
         | _ -> "Other type"
     in
     print_endline ("[*] AE_binop, lhs is " ^ lhs_desc);
-    print_endline ("[*] AE_binop" ^ dump_binop bop);
+    print_endline ("[*] AE_binop, rhs is " ^ rhs_desc);
+    print_endline ("[*] AE_binop bop: " ^ dump_binop bop);
+
+(*    Format.fprintf
+    fmt
+    "@[<hv>@[%a@] DIVISOR @[%s %a@]@]"
+    dump_atomic lhs
+    (dump_binop bop)
+    dump_atomic rhs *)
 
     Format.fprintf
-      fmt
-      "@[<hv>@[%a@]%t@[%s %a@]@]"
-      dump_atomic
-      lhs
-      (Format.pp_print_custom_break ~fits:("", 0, " ") ~breaks:(" \\", 0, ""))
-      (dump_binop bop)
-      dump_atomic
-      rhs
+    fmt
+    "@[<hv>@[%a@]"
+    dump_atomic lhs
+
   | AE_dist d -> 
       print_endline ("[*] AE_dist");
       dump_dist fmt d
   | AE_pair (exp1, exp2) -> Format.fprintf fmt "%a, %a" dump_atomic exp1 dump_atomic exp2
+
+  | AE_logPr (AE_dist D_ber e, v) -> 
+    let r = 1.0 -. extract_real_value e in
+    let m = "(" ^ string_of_float(extract_real_value e) ^ extract_var_name_from_ae_var v ^ " + " ^ string_of_float(r) ^ ")" in
+    print_endline ("                             [*] m is : " ^ m);
+    mult_gf(m);
+
   | AE_logPr (dist, v) ->
     print_endline ("[*] AE_logPr");
     Format.fprintf fmt
@@ -116,11 +140,10 @@ let rec dump_atomic fmt = function
   | AE_field (_, _) -> failwith "TODO: AE_field"
 
 and dump_dist fmt = function
-  | D_ber e -> 
-    let r = 1.0 -. extract_real_value e in
+  | D_ber _ -> ()
+    (* let r = 1.0 -. extract_real_value e in
     let m = "(" ^ string_of_float(extract_real_value e) ^ "x) + " ^ string_of_float(r) in
-    mult_gf(m);
-    Format.fprintf fmt " *** %s *** " m
+    mult_gf(m); *)
   | D_unif -> Format.fprintf fmt "dist.Uniform???"
   | D_beta (e1, e2) ->
     Format.fprintf fmt "dist.Beta(%a, %a)" dump_atomic e1 dump_atomic e2

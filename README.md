@@ -1,6 +1,8 @@
 # [**PLDI'24 Artifact**] Variable Elimination for an Expressive Probabilistic Programming Language
 
-This repository contains the tool source code, benchmarks and instructions to reproduce the results in the paper. 
+This repository is a fork of [MAPPL](https://github.com/mappl-pldi24-ae) to
+extend the use of generating function. It adds a new parameter (gf) that
+outputs the generating function for the given program.
 
 ## Table of Contents
 
@@ -18,6 +20,7 @@ mappl compiler
 === subcommands ===
   dump-pyro                  . perform ANF conversion into pyro code generation
   dump-rust                  . rust code generation
+  gf                         . generating function from mappl source
   hoist                      . lambda hoisting
   only-parse                 . only parse
   type-check                 . type check
