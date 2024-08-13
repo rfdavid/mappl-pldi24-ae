@@ -5,6 +5,11 @@ open Type
 open Identifier
 open Common
 
+(* FADBADml *)
+module Op = Fadbad.OpFloat (* elementary floating point arithmetic *)
+module F = Fadbad.F(Op) (* equivalent of F<float> class *)
+
+
 let indent = "    "
 let dummy_param = "_x"
 

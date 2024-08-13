@@ -6,6 +6,6 @@
 
 (library
  (name MAPPL)
- (libraries dune-build-info core compiler-libs.common menhirLib str)
+ (libraries dune-build-info core compiler-libs.common menhirLib str fadbadml)
  (preprocess
   (pps ppx_jane ppx_deriving.show)))
