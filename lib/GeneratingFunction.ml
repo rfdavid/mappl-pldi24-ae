@@ -9,6 +9,9 @@ open Common
 module Op = Fadbad.OpFloat (* elementary floating point arithmetic *)
 module F = Fadbad.F(Op) (* equivalent of F<float> class *)
 
+let func x y =
+  let open F in
+  (y * x)
 
 let indent = "    "
 let dummy_param = "_x"
@@ -26,14 +29,6 @@ let mult_gf (value : string) : unit =
 
 let print_gf () = print_endline !gf_expression
 
-(* Hacky string replacement for legal identifiers *)
-let primer varname =
-  if String.equal varname "lambda"
-  then "lambda_"
-  else (
-    let r = Str.regexp "'" in
-    Str.global_replace r "_prime" varname)
-;;
 
 let func_prefix varname = "f_of_" ^ varname
 
@@ -75,7 +70,7 @@ let extract_real_value = function
   | _ -> 0.0
 
 let extract_var_name_from_ae_var = function
-  | AE_var var_name -> primer var_name
+  | AE_var var_name -> var_name
   | _ -> ""
 
 (* --- 
@@ -84,7 +79,7 @@ let extract_var_name_from_ae_var = function
 
    --- *)
 let rec dump_atomic fmt = function
-  | AE_var var_name -> Format.fprintf fmt "%s" (primer var_name)
+  | AE_var var_name -> Format.fprintf fmt "%s" (var_name)
   | AE_triv -> Format.fprintf fmt "0.0"
   | AE_bool b -> Format.fprintf fmt "%s" (if b then "True" else "False")
   | AE_real r -> Format.fprintf fmt "%f" r
@@ -120,9 +115,11 @@ let rec dump_atomic fmt = function
     dump_atomic rhs *)
 
     Format.fprintf
-    fmt
-    "@[<hv>@[%a@]"
-    dump_atomic lhs
+        fmt
+        "@[<hv>@[%a@]"
+        dump_atomic lhs;
+
+    print_endline "[*] FINISH GF";
 
   | AE_dist d -> 
       print_endline ("[*] AE_dist");
@@ -132,7 +129,7 @@ let rec dump_atomic fmt = function
   | AE_logPr (AE_dist D_ber e, v) -> 
     let r = 1.0 -. extract_real_value e in
     let m = "(" ^ string_of_float(extract_real_value e) ^ extract_var_name_from_ae_var v ^ " + " ^ string_of_float(r) ^ ")" in
-    print_endline ("                             [*] m is : " ^ m);
+    print_endline ("[*] m is : " ^ m);
     mult_gf(m);
 
   | AE_logPr (dist, v) ->
@@ -167,46 +164,17 @@ and dump_dist fmt = function
 let return_or_bind ?bind fmt =
   match bind with
   | None -> Format.fprintf fmt "%a"
-  | Some (Some var) -> Format.fprintf fmt "@[%s = %a@]@\n" (primer var)
+  | Some (Some var) -> Format.fprintf fmt "@[%s = %a@]@\n" (var)
   | Some None -> Format.fprintf fmt "%a"
 ;;
 
-
-(* --- 
-
-   DUMP COMPLEX 
-
-   --- *)
-let rec dump_complex ?bind fmt = function
-  | CE_call (name, args) ->
-    print_endline ("[*] CE_call");
-    return_or_bind ?bind fmt (fun fmt () -> emit_call fmt name args) ()
-  | _ -> failwith "TODO: branching, sample, observe, etc"
-
-
-(* Is the call a partial application of a hoisted lambda? *)
-and emit_call fmt func_id args =
-  let func_name = primer func_id in
-  if String.is_prefix ~prefix:"lambda" func_name
-  then
-    (* TODO: partial application through a global context telling how many params a func takes,
-       currently we assume all partial applications return unary functions *)
-    Format.fprintf
-      fmt
-      "cached_partial(%s%s%a)"
-      func_name
-      (if List.length args = 0 then "" else ", ")
-      (print_list ~f:dump_atomic)
-      args
-  else Format.fprintf fmt "%s(%a)" func_name (print_list ~f:dump_atomic) args
-
-and dump_inter ?bind fmt = function
+let rec dump_inter ?bind fmt = function
   | IE_let (ev, v, e) ->
     print_endline ("[*] func_name: " ^ v);
     dump_either ~bind:(Some v) fmt ev;
     dump_inter ?bind fmt e
   | IE_abs (_, _) -> ()
-  | IE_tail atoplex -> 
+  | IE_tail atoplex ->
     print_endline ("[*] IE_tail");
     dump_either ?bind fmt atoplex
 
@@ -214,50 +182,27 @@ and dump_either ?bind fmt = function
   | First atom ->
     print_endline ("[*] first");
     return_or_bind ?bind fmt (fun fmt () -> Format.fprintf fmt "%a" dump_atomic atom) ()
-  | Second comp -> 
-    print_endline ("[*] second");
-    dump_complex ?bind fmt comp
+  | Second _-> ()
 ;;
 
-(* This is a wrapper for dump_inter/complex/atomic which are the workhorses,
-   this function only special cases the first lambda encountered *)
 let dump_tree fmt = function
-  | IE_abs (arg_name, body) ->
-    let arg_name = primer arg_name in
-    let func_name = func_prefix arg_name in
-    Format.fprintf
-      fmt
-      "@[@@cache@\ndef %s(@[%s@]):@\n%s@[%a@]@\nreturn %s(%s)@]"
-      func_name
-      arg_name
-      indent
-      (dump_inter ~bind:None)
-      body
-      func_name
-      dummy_param
-  (* If the body is an eta-reduction *)
+  | IE_abs (_, _) -> ()
   | IE_tail eta -> Format.fprintf fmt "@[%a@]" (dump_either ~bind:None) eta
   | other -> dump_inter fmt other
 ;;
 
 let emit_param fmt = function
-  | id, _ -> Format.fprintf fmt "%s" (primer id.txt)
+  | id, _ -> Format.fprintf fmt "%s" (id.txt)
 ;;
 
 let emit_sig fmt sign = print_list ~f:emit_param fmt sign.psig_arg_tys
 
 let dump_top_level fmt = function
   | ANF_pure (_,_) -> ()
-  | ANF_func (id, sign, body) ->
-    (* call 3 times here *)
+  | ANF_func (_, _, body) ->
     Format.fprintf
       fmt
-      "@[%sdef %s(%a):@\n%s@[%a@]@]@."
-      id
-      id
-      emit_sig
-      sign
-      indent
+      "%a\n"
       (dump_inter ~bind:None)
       body
 ;;
