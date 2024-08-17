@@ -9,12 +9,26 @@ open Common
 module Op = Fadbad.OpFloat (* elementary floating point arithmetic *)
 module F = Fadbad.F(Op) (* equivalent of F<float> class *)
 
+let random_vars : (string, string) Hashtbl.t = Hashtbl.create (module String) ~size:10
+
+let update_rnd_var key value =
+  Hashtbl.set random_vars ~key ~data:value;
+;;
+
+let print_all_rnd_vars () =
+  Hashtbl.iteri random_vars ~f:(fun ~key ~data -> 
+    Printf.printf "Var: %s, Value: %s\n" key data
+)
+
 let func x y =
   let open F in
   (y * x)
 
-let indent = "    "
-let dummy_param = "_x"
+let dfdx v exp =
+    "dgf/d" ^ v ^ "" ^ exp
+
+let print_dfdx v exp =
+    Printf.printf "%s\n" (dfdx v exp)
 
 let header =
   "Generating Function\n"
@@ -28,7 +42,6 @@ let mult_gf (value : string) : unit =
   | _ -> gf_expression := !gf_expression ^ " * " ^ value
 
 let print_gf () = print_endline !gf_expression
-
 
 let func_prefix varname = "f_of_" ^ varname
 
@@ -89,7 +102,6 @@ let rec dump_atomic fmt = function
   | AE_binop (Bop_eq, _, _) -> ()
   | AE_binop (bop, lhs, rhs) ->
     print_endline ("[*] AE_binop: ");
-
     (* Debugging purposes *)
     let lhs_desc = match lhs with
         | AE_var v -> "Variable: " ^ v
@@ -106,34 +118,25 @@ let rec dump_atomic fmt = function
     print_endline ("[*] AE_binop, lhs is " ^ lhs_desc);
     print_endline ("[*] AE_binop, rhs is " ^ rhs_desc);
     print_endline ("[*] AE_binop bop: " ^ dump_binop bop);
-
-(*    Format.fprintf
-    fmt
-    "@[<hv>@[%a@] DIVISOR @[%s %a@]@]"
-    dump_atomic lhs
-    (dump_binop bop)
-    dump_atomic rhs *)
-
     Format.fprintf
         fmt
         "@[<hv>@[%a@]"
         dump_atomic lhs;
-
-    print_endline "[*] FINISH GF";
-
   | AE_dist d -> 
       print_endline ("[*] AE_dist");
       dump_dist fmt d
   | AE_pair (exp1, exp2) -> Format.fprintf fmt "%a, %a" dump_atomic exp1 dump_atomic exp2
-
-  | AE_logPr (AE_dist D_ber e, v) -> 
-    let r = 1.0 -. extract_real_value e in
-    let m = "(" ^ string_of_float(extract_real_value e) ^ extract_var_name_from_ae_var v ^ " + " ^ string_of_float(r) ^ ")" in
-    print_endline ("[*] m is : " ^ m);
-    mult_gf(m);
-
+  (*| AE_logPr (AE_dist D_pois e, v) -> () *)
+  | AE_logPr (AE_dist D_ber e, v) ->
+      let r = 1.0 -. extract_real_value e in
+      let m = "(" ^ string_of_float(extract_real_value e) ^ extract_var_name_from_ae_var v ^ " + " ^ string_of_float(r) ^ ")" in
+      update_rnd_var (extract_var_name_from_ae_var v) m;
+      print_endline ("gf = " ^ m);
+      print_dfdx (extract_var_name_from_ae_var v) m;
+      (* print_all_rnd_vars (); *)
+      mult_gf(m);
   | AE_logPr (dist, v) ->
-    print_endline ("[*] AE_logPr");
+          print_endline ("[*] AE_logPr");
     Format.fprintf fmt
       " --- %a => [%a] --- "
       dump_atomic dist
@@ -164,7 +167,7 @@ and dump_dist fmt = function
 let return_or_bind ?bind fmt =
   match bind with
   | None -> Format.fprintf fmt "%a"
-  | Some (Some var) -> Format.fprintf fmt "@[%s = %a@]@\n" (var)
+  | Some (Some var) -> Format.fprintf fmt "@[%s = %a@]" (var)
   | Some None -> Format.fprintf fmt "%a"
 ;;
 
@@ -202,11 +205,12 @@ let dump_top_level fmt = function
   | ANF_func (_, _, body) ->
     Format.fprintf
       fmt
-      "%a\n"
+      "%a"
       (dump_inter ~bind:None)
       body
 ;;
 
 let calc_gf fmt anf_prog =
-  Format.fprintf fmt "@[%s@.%a@]" header (Format.pp_print_list dump_top_level) anf_prog
+  Format.fprintf fmt "@[%s@.%a@]" header (Format.pp_print_list dump_top_level) anf_prog;
+  (* print_endline("observe"); *)
 ;;
