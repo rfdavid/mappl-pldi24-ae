@@ -135,6 +135,11 @@ let rec dump_atomic fmt = function
       print_dfdx (extract_var_name_from_ae_var v) m;
       (* print_all_rnd_vars (); *)
       mult_gf(m);
+  | AE_logPr (AE_dist D_pois AE_real exp, v) ->
+      (* e^(lambda(x-1)) *)
+      let var = (extract_var_name_from_ae_var v) in
+      let m = "(" ^ "e^(" ^ string_of_float(exp) ^ "(" ^ var ^ " - 1))" in
+      print_endline ("gf = " ^ m);
   | AE_logPr (dist, v) ->
           print_endline ("[*] AE_logPr");
     Format.fprintf fmt
