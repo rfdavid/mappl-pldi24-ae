@@ -139,11 +139,13 @@ let rec dump_atomic fmt = function
       (* e^(lambda(x-1)) *)
       let var = (extract_var_name_from_ae_var v) in
       let m = "(" ^ "e^(" ^ string_of_float(exp) ^ "(" ^ var ^ " - 1))" in
+      mult_gf(m);
       print_endline ("gf = " ^ m);
+      print_dfdx (extract_var_name_from_ae_var v) m;
   | AE_logPr (dist, v) ->
           print_endline ("[*] AE_logPr");
     Format.fprintf fmt
-      " --- %a => [%a] --- "
+      "%a => [%a]"
       dump_atomic dist
       dump_atomic v
   | AE_array lst -> Format.fprintf fmt "[%a]" (print_list ~f:dump_atomic) lst
@@ -162,10 +164,10 @@ and dump_dist fmt = function
   | D_normal (e1, e2) ->
     Format.fprintf fmt "dist.Normal(%a, %a)" dump_atomic e1 dump_atomic e2
   | D_cat lst ->
-    Format.fprintf fmt "dist.Categorical(@;<0 4>torch.tensor(%a)@;<0>)" dump_atomic lst
+    Format.fprintf fmt "dist.Categorical(@;<0 4>(%a)@;<0>)" dump_atomic lst
   | D_bin (n, exp) -> Format.fprintf fmt "dist.Binomial(%d, %a)" n dump_atomic exp
   | D_geo exp -> Format.fprintf fmt "dist.Geometric(%a)" dump_atomic exp
-  | D_pois exp -> Format.fprintf fmt "dist.Poisson(%a)" dump_atomic exp
+  | D_pois exp -> Format.fprintf fmt "%a" dump_atomic exp
   | D_exp exp -> Format.fprintf fmt "dist.Exponential(%a)" dump_atomic exp
 ;;
 
